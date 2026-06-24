@@ -33,6 +33,7 @@ const FIREBASE_CONFIG = {
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
+const ESPN_START_YEAR = 2014;
 
 // ─── ESPN HISTORICAL DATA (pre-Sleeper) ──────────────────────────────────────
 const ESPN_HISTORY = [
