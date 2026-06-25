@@ -1,4 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Component } from "react";
+
+// ─── ERROR BOUNDARY ──────────────────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("Tab crashed:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ maxWidth: 700, margin: "40px auto", padding: "0 20px" }}>
+          <div style={{ background: "#1a0000", border: "1px solid #660000", borderRadius: 8, padding: 24, color: "#ff6666" }}>
+            <div style={{ fontSize: 24, marginBottom: 10 }}>⚠️ Something went wrong loading this section</div>
+            <div style={{ fontSize: 13, color: "#aaa", marginBottom: 16 }}>{this.state.error?.message}</div>
+            <button style={{ background: "#330000", border: "1px solid #660000", color: "#ff9999", padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}
+              onClick={() => this.setState({ hasError: false, error: null })}>
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const FIREBASE_CONFIG = {
@@ -9,6 +33,7 @@ const FIREBASE_CONFIG = {
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
+const ESPN_START_YEAR = 2014;
 
 // ─── ESPN HISTORICAL DATA (pre-Sleeper) ──────────────────────────────────────
 const ESPN_HISTORY = [
@@ -180,18 +205,20 @@ function buildStandings(rosters, users) {
 
 // Find champion from winners bracket (p=1 means 1st place finish in final round)
 function findChampion(winnersBracket, rosters, users, standings) {
-  if (!winnersBracket || winnersBracket.length === 0) return null;
-  const userMap = {};
-  users.forEach(u => { userMap[u.user_id] = u; });
-  const rosterMap = {};
-  rosters.forEach(r => { rosterMap[r.roster_id] = r; });
-  // Find the championship game (highest round, p=1 winner)
-  const maxRound = Math.max(...winnersBracket.map(m => m.r));
-  const championshipGames = winnersBracket.filter(m => m.r === maxRound);
-  if (championshipGames.length > 0) {
-    const champ = championshipGames[0];
-    const winnerId = champ.w; // roster_id of winner
-    if (winnerId) {
+  try {
+    if (!winnersBracket || !Array.isArray(winnersBracket) || winnersBracket.length === 0) {
+      return standings[0] ? { owner: standings[0].owner, team: standings[0].team } : null;
+    }
+    const userMap = {};
+    (users || []).forEach(u => { if (u?.user_id) userMap[u.user_id] = u; });
+    const rosterMap = {};
+    (rosters || []).forEach(r => { if (r?.roster_id) rosterMap[r.roster_id] = r; });
+    const rounds = winnersBracket.map(m => m.r).filter(Boolean);
+    if (rounds.length === 0) return standings[0] ? { owner: standings[0].owner, team: standings[0].team } : null;
+    const maxRound = Math.max(...rounds);
+    const championshipGames = winnersBracket.filter(m => m.r === maxRound && m.w);
+    if (championshipGames.length > 0) {
+      const winnerId = championshipGames[0].w;
       const roster = rosterMap[winnerId];
       if (roster) {
         const user = userMap[roster.owner_id] || {};
@@ -201,9 +228,11 @@ function findChampion(winnersBracket, rosters, users, standings) {
         };
       }
     }
+    return standings[0] ? { owner: standings[0].owner, team: standings[0].team } : null;
+  } catch (e) {
+    console.warn("findChampion error:", e.message);
+    return standings[0] ? { owner: standings[0].owner, team: standings[0].team } : null;
   }
-  // Fallback: top of standings
-  return standings[0] ? { owner: standings[0].owner, team: standings[0].team } : null;
 }
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
@@ -705,7 +734,9 @@ function LeagueHistory({ leagueData }) {
     async function fetchHistory() {
       try {
         setLoadingMsg("Walking season history via Sleeper...");
+        console.log("[LeagueHistory] Starting fetch. leagueInfo:", JSON.stringify(leagueData.leagueInfo?.league_id), "season:", leagueData.leagueInfo?.season, "prev_id:", leagueData.leagueInfo?.previous_league_id);
         const historicalSeasons = await getAllHistoricalLeagues(leagueData.leagueInfo, LEAGUE_START_YEAR);
+        console.log("[LeagueHistory] Got seasons:", historicalSeasons.map(s => s.year));
         setSeasons(historicalSeasons);
         if (historicalSeasons.length > 0) setSelectedYear(historicalSeasons[historicalSeasons.length - 1].year);
         setLoading(false);
@@ -734,7 +765,8 @@ function LeagueHistory({ leagueData }) {
         setPointsData(ownerPoints);
         setLoadingPoints(false);
       } catch (e) {
-        setError(e.message);
+        console.error("[LeagueHistory] Fatal error:", e.message, e.stack);
+        setError(e.message + " — Check browser console (F12) for details.");
         setLoading(false);
         setLoadingPoints(false);
       }
@@ -1142,7 +1174,7 @@ export default function App() {
       {tab === "Standings" && <Standings leagueData={leagueData} />}
       {tab === "Scoreboard" && <Scoreboard leagueData={leagueData} />}
       {tab === "Teams" && <Teams leagueData={leagueData} />}
-      {tab === "League History" && <LeagueHistory leagueData={leagueData} />}
+      {tab === "League History" && <ErrorBoundary key="history"><LeagueHistory leagueData={leagueData} /></ErrorBoundary>}
       {tab === "Weekly Picks" && <WeeklyPicks leagueData={leagueData} />}
       {tab === "Pick Leaderboard" && <PickLeaderboard leagueData={leagueData} />}
       {tab === "Rules" && <Rules />}
