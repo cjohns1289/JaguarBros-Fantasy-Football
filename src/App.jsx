@@ -25,19 +25,18 @@ class ErrorBoundary extends Component {
 }
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyAwihKVB3IeOqkdR1kSAFfrmTb9WSI2WJU",
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAwiNKVB3IeOqkdR1kSAFfrmTb9wSI2WJU",
   authDomain: "jaguarbros-fantasy-football.firebaseapp.com",
   databaseURL: "https://jaguarbros-fantasy-football-default-rtdb.firebaseio.com",
   projectId: "jaguarbros-fantasy-football",
   storageBucket: "jaguarbros-fantasy-football.firebasestorage.app",
   messagingSenderId: "367228013896",
   appId: "1:367228013896:web:4e1f9975c83174d3ccf77d",
-  measurementId: "G-F4P8HGYJ1B"
-};
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
+const ESPN_START_YEAR = 2014;
 
 // ─── ESPN HISTORICAL DATA (pre-Sleeper) ──────────────────────────────────────
 const ESPN_HISTORY = [
@@ -240,7 +239,7 @@ function findChampion(winnersBracket, rosters, users, standings) {
 }
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
-const fbReady = () => FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.includes("PASTE");
+const fbReady = () => !!(FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.includes("PASTE"));
 const fbBase = () => `${FIREBASE_CONFIG.databaseURL.replace(/\/$/, "")}/picks`;
 async function fbGet(path) {
   try { const r = await fetch(`${fbBase()}/${path}.json`); return r.ok ? r.json() : null; } catch { return null; }
@@ -738,7 +737,9 @@ function LeagueHistory({ leagueData }) {
     async function fetchHistory() {
       try {
         setLoadingMsg("Walking season history via Sleeper...");
+        console.log("[LeagueHistory] Starting fetch. leagueInfo:", JSON.stringify(leagueData.leagueInfo?.league_id), "season:", leagueData.leagueInfo?.season, "prev_id:", leagueData.leagueInfo?.previous_league_id);
         const historicalSeasons = await getAllHistoricalLeagues(leagueData.leagueInfo, LEAGUE_START_YEAR);
+        console.log("[LeagueHistory] Got seasons:", historicalSeasons.map(s => s.year));
         setSeasons(historicalSeasons);
         if (historicalSeasons.length > 0) setSelectedYear(historicalSeasons[historicalSeasons.length - 1].year);
         setLoading(false);
@@ -767,7 +768,8 @@ function LeagueHistory({ leagueData }) {
         setPointsData(ownerPoints);
         setLoadingPoints(false);
       } catch (e) {
-        setError(e.message);
+        console.error("[LeagueHistory] Fatal error:", e.message, e.stack);
+        setError(e.message + " — Check browser console (F12) for details.");
         setLoading(false);
         setLoadingPoints(false);
       }
@@ -780,56 +782,73 @@ function LeagueHistory({ leagueData }) {
   if (error) return <ErrBox msg={`History fetch error: ${error}`} />;
   if (!seasons || seasons.length === 0) return <ErrBox msg="No historical seasons found." />;
 
-  // ── Build season summaries from Sleeper data
-  const sleeperSummaries = seasons.map(s => {
-    const standings = buildStandingsFromData(s.rosters, s.users);
-    const champ = findChampion(s.winnersBracket, s.rosters, s.users, standings);
-    const sacko = standings[standings.length - 1];
-    return { year: s.year, standings, champ, sacko, status: s.info.status, source: "sleeper" };
-  });
+  // ── Build all summaries safely
+  let sleeperSummaries = [], espnSummaries = [], allSeasonSummaries = [];
+  let championRecord = {}, sackoRecord = {}, allTimeRecords = [];
+  let allTimeLeaderboard = [];
 
-  // ── Build ESPN era summaries
-  const espnSummaries = ESPN_HISTORY.map(e => ({
-    year: e.year,
-    standings: [],
-    champ: e.champion ? { owner: e.champion, team: e.champion } : null,
-    sacko: e.sacko ? { owner: e.sacko, team: e.sacko } : null,
-    status: "complete",
-    source: "espn",
-  }));
-
-  const allSeasonSummaries = [...espnSummaries, ...sleeperSummaries]
-    .sort((a, b) => a.year - b.year);
-
-  // ── Champion record (ESPN + Sleeper)
-  const championRecord = {};
-  const sackoRecord = {};
-  allSeasonSummaries.forEach(s => {
-    if (s.status !== "complete") return;
-    if (s.champ) championRecord[s.champ.owner] = (championRecord[s.champ.owner] || 0) + 1;
-    if (s.sacko) sackoRecord[s.sacko.owner] = (sackoRecord[s.sacko.owner] || 0) + 1;
-  });
-
-  // ── All-time W/L from Sleeper seasons
-  const allTimeRecords = {};
-  sleeperSummaries.forEach(s => {
-    s.standings.forEach(t => {
-      if (!allTimeRecords[t.owner]) allTimeRecords[t.owner] = { wins: 0, losses: 0, ties: 0 };
-      allTimeRecords[t.owner].wins += t.wins;
-      allTimeRecords[t.owner].losses += t.losses;
-      allTimeRecords[t.owner].ties += (t.ties || 0);
+  try {
+    sleeperSummaries = (seasons || []).map(s => {
+      try {
+        const standings = buildStandingsFromData(s.rosters || [], s.users || []);
+        const champ = findChampion(s.winnersBracket, s.rosters, s.users, standings);
+        const sacko = standings.length > 0 ? standings[standings.length - 1] : null;
+        return { year: s.year, standings, champ, sacko, status: s.info?.status || "complete", source: "sleeper" };
+      } catch(e) {
+        console.warn("[LeagueHistory] Error processing season", s.year, e.message);
+        return { year: s.year, standings: [], champ: null, sacko: null, status: "complete", source: "sleeper" };
+      }
     });
-  });
-  const allTimeLeaderboard = Object.entries(allTimeRecords)
-    .map(([owner, r]) => ({ owner, ...r, pct: r.wins / Math.max(r.wins + r.losses + r.ties, 1) }))
-    .sort((a, b) => b.pct - a.pct || b.wins - a.wins);
+  } catch(e) { console.error("[LeagueHistory] sleeperSummaries failed:", e.message); }
 
-  const selectedSeason = allSeasonSummaries.find(s => s.year === selectedYear);
-  const pointsLeaderboard = pointsData
-    ? Object.entries(pointsData).sort((a, b) => b[1] - a[1]).map(([owner, pts]) => ({ owner, pts }))
-    : [];
-  const maxPts = pointsLeaderboard.length > 0 ? pointsLeaderboard[0].pts : 1;
-  const maxWins = allTimeLeaderboard.length > 0 ? allTimeLeaderboard[0].wins : 1;
+  try {
+    espnSummaries = (ESPN_HISTORY || []).map(e => ({
+      year: e.year,
+      standings: [],
+      champ: e.champion ? { owner: e.champion, team: e.champion } : null,
+      sacko: e.sacko ? { owner: e.sacko, team: e.sacko } : null,
+      status: "complete",
+      source: "espn",
+    }));
+  } catch(e) { console.error("[LeagueHistory] espnSummaries failed:", e.message); }
+
+  try {
+    allSeasonSummaries = [...espnSummaries, ...sleeperSummaries].sort((a, b) => a.year - b.year);
+  } catch(e) { console.error("[LeagueHistory] allSeasonSummaries failed:", e.message); }
+
+  try {
+    allSeasonSummaries.forEach(s => {
+      if (s.status !== "complete") return;
+      if (s.champ?.owner) championRecord[s.champ.owner] = (championRecord[s.champ.owner] || 0) + 1;
+      if (s.sacko?.owner) sackoRecord[s.sacko.owner] = (sackoRecord[s.sacko.owner] || 0) + 1;
+    });
+  } catch(e) { console.error("[LeagueHistory] champion/sacko record failed:", e.message); }
+
+  try {
+    const allTimeRecordsMap = {};
+    sleeperSummaries.forEach(s => {
+      (s.standings || []).forEach(t => {
+        if (!t?.owner) return;
+        if (!allTimeRecordsMap[t.owner]) allTimeRecordsMap[t.owner] = { wins: 0, losses: 0, ties: 0 };
+        allTimeRecordsMap[t.owner].wins += (t.wins || 0);
+        allTimeRecordsMap[t.owner].losses += (t.losses || 0);
+        allTimeRecordsMap[t.owner].ties += (t.ties || 0);
+      });
+    });
+    allTimeLeaderboard = Object.entries(allTimeRecordsMap)
+      .map(([owner, r]) => ({ owner, ...r, pct: r.wins / Math.max(r.wins + r.losses + r.ties, 1) }))
+      .sort((a, b) => b.pct - a.pct || b.wins - a.wins);
+  } catch(e) { console.error("[LeagueHistory] allTimeLeaderboard failed:", e.message); }
+
+  const selectedSeason = allSeasonSummaries.find(s => s.year === selectedYear) || null;
+  let pointsLeaderboard = [], maxPts = 1, maxWins = 1;
+  try {
+    pointsLeaderboard = pointsData
+      ? Object.entries(pointsData).sort((a, b) => b[1] - a[1]).map(([owner, pts]) => ({ owner, pts }))
+      : [];
+    maxPts = pointsLeaderboard.length > 0 ? pointsLeaderboard[0].pts : 1;
+    maxWins = allTimeLeaderboard.length > 0 ? allTimeLeaderboard[0].wins : 1;
+  } catch(e) { console.error("[LeagueHistory] points calc failed:", e.message); }
 
   return (
     <div style={S.section}>
@@ -1100,7 +1119,7 @@ function SetupGuide() {
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const TABS = ["Standings", "Scoreboard", "Teams", "League History", "Weekly Picks", "Pick Leaderboard", "Rules", "Setup Guide"];
+const TABS = ["Standings", "Weekly Picks", "Pick Leaderboard", "Scoreboard", "Teams", "League History", "Rules", "Setup Guide"];
 
 export default function App() {
   const [tab, setTab] = useState("Standings");
@@ -1145,7 +1164,6 @@ export default function App() {
                 {[
                   [leagueData?.rosters?.length || 12, "Teams"],
                   [currentWeek, "Current Week"],
-                  [NFL_SEASON - LEAGUE_START_YEAR + 1, "Seasons"],
                   ["LIVE", "Sleeper Sync"],
                 ].map(([num, label]) => (
                   <div key={label} style={{ textAlign: "center" }}>
