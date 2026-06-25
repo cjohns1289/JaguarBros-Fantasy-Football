@@ -35,7 +35,7 @@ const FIREBASE_CONFIG = {
   appId: "1:367228013896:web:4e1f9975c83174d3ccf77d",
 };
 const SLEEPER_USERNAME = "CommishChris";
-const GOOGLE_CLIENT_ID = "367228013896-saon70qkr5e5s2mqnrdjchi422uci7jt.apps.googleusercontent.com"; // Set this after enabling Google Auth in Firebase
+const GOOGLE_CLIENT_ID = "367228013896-saon70qkr5e5s2mqnrdjchi422uci7jt.apps.googleusercontent.com";
 const LEAGUE_START_YEAR = 2020;
 const ESPN_START_YEAR = 2014;
 
