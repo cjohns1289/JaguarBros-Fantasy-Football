@@ -30,6 +30,10 @@ const FIREBASE_CONFIG = {
   authDomain: "jaguarbros-fantasy-football.firebaseapp.com",
   databaseURL: "https://jaguarbros-fantasy-football-default-rtdb.firebaseio.com",
   projectId: "jaguarbros-fantasy-football",
+  storageBucket: "jaguarbros-fantasy-football.firebasestorage.app",
+  messagingSenderId: "367228013896",
+  appId: "1:367228013896:web:4e1f9975c83174d3ccf77d",
+  measurementId: "G-F4P8HGYJ1B"
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
