@@ -25,7 +25,7 @@ class ErrorBoundary extends Component {
 }
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const FIREBASE_CONFIG = {
+const firebaseConfig = {
   apiKey: "AIzaSyAwihKVB3IeOqkdR1kSAFfrmTb9WSI2WJU",
   authDomain: "jaguarbros-fantasy-football.firebaseapp.com",
   databaseURL: "https://jaguarbros-fantasy-football-default-rtdb.firebaseio.com",
@@ -34,6 +34,7 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "367228013896",
   appId: "1:367228013896:web:4e1f9975c83174d3ccf77d",
   measurementId: "G-F4P8HGYJ1B"
+};
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
