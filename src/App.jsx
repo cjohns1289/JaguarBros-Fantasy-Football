@@ -35,6 +35,7 @@ const FIREBASE_CONFIG = {
   appId: "1:367228013896:web:4e1f9975c83174d3ccf77d",
 };
 const SLEEPER_USERNAME = "CommishChris";
+const GOOGLE_CLIENT_ID = "PASTE_YOUR_GOOGLE_CLIENT_ID"; // Set this after enabling Google Auth in Firebase
 const LEAGUE_START_YEAR = 2020;
 const ESPN_START_YEAR = 2014;
 
@@ -536,18 +537,101 @@ function Teams({ leagueData }) {
 }
 
 // ─── WEEKLY PICKS TAB ────────────────────────────────────────────────────────
+
+// ── Firebase Auth helpers (no SDK — REST + Google Identity Services)
+function GoogleSignIn({ onSignIn }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleGoogleSignIn = () => {
+    setLoading(true);
+    setError(null);
+    // Use Google Identity Services popup
+    const client = window.google?.accounts?.oauth2?.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: "email profile",
+      callback: async (resp) => {
+        if (resp.error) { setError("Sign-in failed. Try again."); setLoading(false); return; }
+        try {
+          // Get user info from Google
+          const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${resp.access_token}` }
+          });
+          const info = await r.json();
+          onSignIn({ uid: info.sub, email: info.email, name: info.name, picture: info.picture, token: resp.access_token });
+        } catch(e) { setError("Could not fetch profile. Try again."); }
+        setLoading(false);
+      }
+    });
+    client?.requestAccessToken() ?? (() => { setError("Google Sign-In not loaded yet. Refresh and try again."); setLoading(false); })();
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+      <button
+        onClick={handleGoogleSignIn}
+        disabled={loading}
+        style={{
+          display: "flex", alignItems: "center", gap: 12,
+          background: T.white, color: "#333", border: "none",
+          borderRadius: 8, padding: "12px 24px", fontSize: 15,
+          fontWeight: 700, cursor: loading ? "not-allowed" : "pointer",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.3)", opacity: loading ? 0.7 : 1,
+          transition: "all 0.15s",
+        }}>
+        <svg width="20" height="20" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        {loading ? "Signing in..." : "Sign in with Google"}
+      </button>
+      {error && <div style={{ color: "#ff6666", fontSize: 12 }}>{error}</div>}
+    </div>
+  );
+}
+
 function WeeklyPicks({ leagueData }) {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [googleUser, setGoogleUser] = useState(() => {
+    try { const s = sessionStorage.getItem("jbff_guser"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [mappedTeam, setMappedTeam] = useState(null);
   const [picks, setPicks] = useState({});
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
   const [matchups, setMatchups] = useState(null);
   const [loadingMatchups, setLoadingMatchups] = useState(false);
   const [fbError, setFbError] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(!!window.google?.accounts);
+
   const standings = leagueData ? buildStandingsFromData(leagueData.rosters, leagueData.users) : [];
   const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
   const leagueId = leagueData?.league?.league_id;
 
+  // Load Google Identity Services script
+  useEffect(() => {
+    if (window.google?.accounts) { setScriptLoaded(true); return; }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.onload = () => setScriptLoaded(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Persist Google user to session
+  useEffect(() => {
+    if (googleUser) {
+      try { sessionStorage.setItem("jbff_guser", JSON.stringify(googleUser)); } catch {}
+      // Look up team mapping in Firebase
+      if (fbReady()) {
+        fbGet(`usermap/${googleUser.uid}`).then(data => {
+          if (data) setMappedTeam(data);
+        });
+      }
+    }
+  }, [googleUser]);
+
+  // Load matchups
   useEffect(() => {
     if (!leagueId) return;
     setLoadingMatchups(true);
@@ -556,39 +640,98 @@ function WeeklyPicks({ leagueData }) {
       .catch(() => setLoadingMatchups(false));
   }, [leagueId, currentWeek]);
 
+  // Load existing picks when mapped
   useEffect(() => {
-    if (!currentUser || !fbReady()) return;
-    fbGet(`week${currentWeek}/${currentUser.replace(/\s+/g, "_")}`).then(d => { if (d) setPicks(d); });
-  }, [currentUser, currentWeek]);
+    if (!googleUser || !fbReady()) return;
+    fbGet(`week${currentWeek}/${googleUser.uid}`).then(d => { if (d) setPicks(d); });
+  }, [googleUser, currentWeek]);
 
-  const handlePick = (key, val) => { setPicks(p => ({ ...p, [key]: val })); setSaved(false); };
+  const handlePick = (key, val) => { setPicks(p => ({ ...p, [key]: val })); setSaveMsg(null); };
+
   const handleSave = async () => {
     if (!fbReady()) { setFbError(true); return; }
     setSaving(true);
-    const ok = await fbSet(`week${currentWeek}/${currentUser.replace(/\s+/g, "_")}`, { ...picks, submittedAt: new Date().toISOString(), displayName: currentUser });
+    const payload = {
+      ...picks,
+      submittedAt: new Date().toISOString(),
+      googleUid: googleUser.uid,
+      displayName: mappedTeam?.owner || googleUser.name,
+      teamName: mappedTeam?.team || "Unregistered",
+    };
+    const ok = await fbSet(`week${currentWeek}/${googleUser.uid}`, payload);
     setSaving(false);
-    if (ok) { setSaved(true); setTimeout(() => setSaved(false), 4000); } else setFbError(true);
+    if (ok) { setSaveMsg("saved"); setTimeout(() => setSaveMsg(null), 4000); }
+    else setFbError(true);
+  };
+
+  const handleSignOut = () => {
+    setGoogleUser(null);
+    setMappedTeam(null);
+    setPicks({});
+    try { sessionStorage.removeItem("jbff_guser"); } catch {}
+  };
+
+  // Commissioner team mapping save
+  const handleMapTeam = async (team) => {
+    if (!googleUser || !fbReady()) return;
+    const mapping = { owner: team.owner, team: team.team, rosterId: team.rosterId, googleUid: googleUser.uid, email: googleUser.email };
+    await fbSet(`usermap/${googleUser.uid}`, mapping);
+    setMappedTeam(mapping);
   };
 
   const upcomingMatchups = matchups ? matchups.filter(m => !m.complete) : [];
-  const allPicked = upcomingMatchups.length > 0 && upcomingMatchups.every(m => picks[`match_${m.matchupId}`]) && picks.highestScore && picks.lowestScore && picks.biggestBlowout;
+  const allPicked =
+    upcomingMatchups.length > 0 &&
+    upcomingMatchups.every(m => picks[`match_${m.matchupId}`]) &&
+    picks.highestScore &&
+    picks.lowestScore &&
+    picks.biggestBlowout;
 
   if (!leagueData) return <Loading />;
 
-  // Confirmation step state
-  const [pendingUser, setPendingUser] = useState(null);
-
-  if (!currentUser && !pendingUser) {
+  // ── Not signed in
+  if (!googleUser) {
     return (
       <div style={S.section}>
         <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
-        <div style={{ ...S.card, maxWidth: 400, padding: 28, margin: "0 auto", textAlign: "center" }}>
-          <img src={LOGO_NAV} alt="logo" style={{ height: 50, width: "auto", marginBottom: 10, borderRadius: 4 }} />
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Who are you?</div>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 20 }}>Select your team to continue</div>
+        <div style={{ ...S.card, maxWidth: 420, padding: 36, margin: "0 auto", textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>🔐</div>
+          <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 8 }}>Sign In to Submit Picks</div>
+          <div style={{ color: T.grayText, fontSize: 13, marginBottom: 28, lineHeight: 1.6 }}>
+            Picks are tied to your Google account to ensure integrity. Only you can submit picks for your team.
+          </div>
+          {scriptLoaded
+            ? <GoogleSignIn onSignIn={setGoogleUser} />
+            : <div style={{ color: T.grayText, fontSize: 13 }}>Loading Google Sign-In...</div>
+          }
+        </div>
+      </div>
+    );
+  }
+
+  // ── Signed in but not mapped to a team yet
+  if (!mappedTeam) {
+    return (
+      <div style={S.section}>
+        <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
+        <div style={{ ...S.card, maxWidth: 460, padding: 28, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, padding: "12px 0", borderBottom: `1px solid ${T.grayMid}` }}>
+            {googleUser.picture && <img src={googleUser.picture} alt="" style={{ width: 36, height: 36, borderRadius: "50%" }} />}
+            <div>
+              <div style={{ fontWeight: 700, color: T.white }}>{googleUser.name}</div>
+              <div style={{ fontSize: 12, color: T.grayText }}>{googleUser.email}</div>
+            </div>
+            <button style={{ ...S.btn(false), marginLeft: "auto", fontSize: 11, padding: "4px 10px" }} onClick={handleSignOut}>Sign Out</button>
+          </div>
+          <div style={{ fontWeight: 700, color: T.white, fontSize: 15, marginBottom: 6 }}>Select Your Fantasy Team</div>
+          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 18, lineHeight: 1.5 }}>
+            Your Google account hasn't been linked to a team yet. Select your team below. This only needs to be done once.
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {standings.map(t => (
-              <button key={t.rosterId} style={{ ...S.btn(false), width: "100%", padding: "10px 16px", fontSize: 13, textAlign: "left" }} onClick={() => setPendingUser(t)}>
+              <button key={t.rosterId}
+                style={{ ...S.btn(false), width: "100%", padding: "11px 16px", fontSize: 13, textAlign: "left" }}
+                onClick={() => handleMapTeam(t)}>
                 <span style={{ color: T.tealGlow, fontWeight: 900 }}>{t.team}</span>
                 <span style={{ color: T.grayText, marginLeft: 8 }}>({t.owner})</span>
               </button>
@@ -599,43 +742,30 @@ function WeeklyPicks({ leagueData }) {
     );
   }
 
-  if (!currentUser && pendingUser) {
-    return (
-      <div style={S.section}>
-        <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
-        <div style={{ ...S.card, maxWidth: 400, padding: 36, margin: "0 auto", textAlign: "center" }}>
-          <div style={{ fontSize: 44, marginBottom: 16 }}>🏈</div>
-          <div style={{ color: T.grayText, fontSize: 13, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase" }}>Confirm Your Identity</div>
-          <div style={{ fontWeight: 900, fontSize: 24, color: T.tealGlow, marginBottom: 4 }}>{pendingUser.team}</div>
-          <div style={{ color: T.grayText, fontSize: 14, marginBottom: 28 }}>Managed by <strong style={{ color: T.white }}>{pendingUser.owner}</strong></div>
-          <div style={{ background: `${T.teal}18`, border: `1px solid ${T.teal}44`, borderRadius: 8, padding: "12px 16px", marginBottom: 24, fontSize: 13, color: T.grayText, lineHeight: 1.6 }}>
-            ⚠️ Picks are locked to this team once submitted. Make sure this is you before continuing.
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <button style={{ ...S.btn(false), flex: 1, padding: "12px 0", fontSize: 14 }} onClick={() => setPendingUser(null)}>
-              ← Not Me
-            </button>
-            <button style={{ ...S.btn(true), flex: 1, padding: "12px 0", fontSize: 14, fontWeight: 900 }} onClick={() => { setCurrentUser(pendingUser.owner); setPendingUser(null); }}>
-              Yes, That's Me ✓
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // ── Signed in and mapped — show picks form
   return (
     <div style={S.section}>
       <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
-      <div style={{ color: T.grayText, marginBottom: 18, fontSize: 13 }}>
-        Picking as: <span style={{ color: T.tealGlow, fontWeight: 700 }}>{currentUser}</span>
-        <button style={{ background: "none", border: "none", color: T.grayText, cursor: "pointer", marginLeft: 10, fontSize: 11, textDecoration: "underline" }} onClick={() => { setCurrentUser(null); setPicks({}); }}>Switch</button>
+
+      {/* User header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, background: T.gray, border: `1px solid ${T.grayMid}`, borderRadius: 8, padding: "12px 18px" }}>
+        {googleUser.picture && <img src={googleUser.picture} alt="" style={{ width: 32, height: 32, borderRadius: "50%" }} />}
+        <div style={{ flex: 1 }}>
+          <span style={{ fontWeight: 700, color: T.tealGlow }}>{mappedTeam.team}</span>
+          <span style={{ color: T.grayText, fontSize: 12, marginLeft: 8 }}>({mappedTeam.owner})</span>
+        </div>
+        <button style={{ ...S.btn(false), fontSize: 11, padding: "4px 10px" }} onClick={handleSignOut}>Sign Out</button>
       </div>
-      {!fbReady() && <div style={{ background: "#1a1000", border: "1px solid #664400", borderRadius: 8, padding: 12, marginBottom: 18, fontSize: 12, color: "#ffaa44" }}>⚠️ Firebase not configured — picks won't save. See <strong>Setup Guide</strong> tab.</div>}
+
+      {!fbReady() && <div style={{ background: "#1a1000", border: "1px solid #664400", borderRadius: 8, padding: 12, marginBottom: 18, fontSize: 12, color: "#ffaa44" }}>⚠️ Firebase not configured — picks won't save. See Setup Guide tab.</div>}
       {loadingMatchups && <Loading msg="Loading matchups..." />}
+
+      {/* ── Matchup Winner Picks */}
       {upcomingMatchups.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1 }}>PICK THE WINNER</div>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1, textTransform: "uppercase" }}>
+            🏆 Pick the Winner — All 6 Matchups
+          </div>
           {upcomingMatchups.map((m, idx) => (
             <div key={m.matchupId} style={S.pickCard}>
               <div style={S.pickHeader}>
@@ -643,58 +773,103 @@ function WeeklyPicks({ leagueData }) {
                 {picks[`match_${m.matchupId}`] && <span style={S.badge("teal")}>✓ PICKED</span>}
               </div>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-                <button style={{ ...S.btn(picks[`match_${m.matchupId}`] === m.home.rosterId), flex: 1, padding: "10px 6px", textAlign: "center" }} onClick={() => handlePick(`match_${m.matchupId}`, m.home.rosterId)}>
+                <button
+                  style={{ ...S.btn(picks[`match_${m.matchupId}`] === m.home.rosterId), flex: 1, padding: "12px 8px", textAlign: "center" }}
+                  onClick={() => handlePick(`match_${m.matchupId}`, m.home.rosterId)}>
                   <div style={{ fontWeight: 900, fontSize: 13 }}>{m.home.team}</div>
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>{m.home.owner}</div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>{m.home.owner}</div>
                 </button>
-                <span style={{ color: T.grayText, fontWeight: 900, fontSize: 12 }}>VS</span>
-                <button style={{ ...S.btn(picks[`match_${m.matchupId}`] === m.away.rosterId), flex: 1, padding: "10px 6px", textAlign: "center" }} onClick={() => handlePick(`match_${m.matchupId}`, m.away.rosterId)}>
+                <div style={{ textAlign: "center", minWidth: 36 }}>
+                  <div style={{ color: T.grayText, fontWeight: 900, fontSize: 12 }}>VS</div>
+                </div>
+                <button
+                  style={{ ...S.btn(picks[`match_${m.matchupId}`] === m.away.rosterId), flex: 1, padding: "12px 8px", textAlign: "center" }}
+                  onClick={() => handlePick(`match_${m.matchupId}`, m.away.rosterId)}>
                   <div style={{ fontWeight: 900, fontSize: 13 }}>{m.away.team}</div>
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>{m.away.owner}</div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>{m.away.owner}</div>
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
-      <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1 }}>SPECIAL PICKS</div>
-      {[
-        { key: "highestScore", label: "🔥 Highest Score This Week", isMatchup: false },
-        { key: "lowestScore", label: "💩 Lowest Score This Week", isMatchup: false },
-        { key: "biggestBlowout", label: "💥 Biggest Blowout Matchup", isMatchup: true },
-      ].map(({ key, label, isMatchup }) => (
-        <div key={key} style={{ ...S.pickCard, marginBottom: 10 }}>
-          <div style={S.pickHeader}>
-            <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>{label}</span>
-            {picks[key] !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
-          </div>
-          <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
-            {isMatchup
-              ? upcomingMatchups.map(m => <button key={m.matchupId} style={S.btn(picks[key] === m.matchupId)} onClick={() => handlePick(key, m.matchupId)}>{m.home.owner} vs {m.away.owner}</button>)
-              : standings.map(t => <button key={t.rosterId} style={S.btn(picks[key] === t.rosterId)} onClick={() => handlePick(key, t.rosterId)}>{t.team}</button>)
-            }
-          </div>
-        </div>
-      ))}
-      {saved ? (
-        <div style={{ marginTop: 22, background: `${T.teal}18`, border: `2px solid ${T.teal}`, borderRadius: 8, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: 16 }}>✓ Picks Locked for Week {currentWeek}</div>
-            <div style={{ color: T.grayText, fontSize: 12, marginTop: 4 }}>Submitted as <strong style={{ color: T.white }}>{currentUser}</strong> — picks are saved and locked.</div>
-          </div>
-          <button style={{ ...S.btn(false), fontSize: 12, padding: "8px 16px" }} onClick={() => { setSaved(false); }}>
-            ✏️ Edit Picks
-          </button>
-        </div>
-      ) : (
-        <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <button style={{ ...S.btn(true), padding: "12px 32px", fontSize: 14, opacity: allPicked ? 1 : 0.5, cursor: allPicked ? "pointer" : "not-allowed" }} onClick={handleSave} disabled={!allPicked || saving}>
-            {saving ? "Saving..." : "Submit Picks"}
-          </button>
-          {!allPicked && <span style={{ color: T.grayText, fontSize: 12 }}>Complete all picks to submit</span>}
-          {fbError && <span style={{ color: "#ff6666", fontSize: 12 }}>Save failed — check Firebase config</span>}
+
+      {upcomingMatchups.length === 0 && !loadingMatchups && (
+        <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, marginBottom: 28 }}>
+          No upcoming matchups found for Week {currentWeek}. Scores may still be in progress.
         </div>
       )}
+
+      {/* ── Special Picks */}
+      <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1, textTransform: "uppercase" }}>
+        ⭐ Special Picks
+      </div>
+
+      {/* Highest Score */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score This Week</span>
+          {picks.highestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
+        </div>
+        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {standings.map(t => (
+            <button key={t.rosterId} style={S.btn(picks.highestScore === t.rosterId)}
+              onClick={() => handlePick("highestScore", t.rosterId)}>
+              {t.team}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lowest Score */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💩 Lowest Score This Week</span>
+          {picks.lowestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
+        </div>
+        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {standings.map(t => (
+            <button key={t.rosterId} style={S.btn(picks.lowestScore === t.rosterId)}
+              onClick={() => handlePick("lowestScore", t.rosterId)}>
+              {t.team}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Biggest Blowout — pick from the 6 live matchups */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💥 Biggest Blowout Matchup</span>
+          {picks.biggestBlowout !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
+        </div>
+        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {upcomingMatchups.length > 0
+            ? upcomingMatchups.map((m, idx) => (
+                <button key={m.matchupId}
+                  style={{ ...S.btn(picks.biggestBlowout === m.matchupId), minWidth: 160 }}
+                  onClick={() => handlePick("biggestBlowout", m.matchupId)}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>Matchup {idx + 1}</div>
+                  <div style={{ fontSize: 11, opacity: 0.75 }}>{m.home.owner} vs {m.away.owner}</div>
+                </button>
+              ))
+            : <div style={{ color: T.grayText, fontSize: 12 }}>Matchups loading...</div>
+          }
+        </div>
+      </div>
+
+      {/* Submit */}
+      <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <button
+          style={{ ...S.btn(true), padding: "12px 32px", fontSize: 14, opacity: allPicked ? 1 : 0.5, cursor: allPicked ? "pointer" : "not-allowed" }}
+          onClick={handleSave}
+          disabled={!allPicked || saving}>
+          {saving ? "Saving..." : "Submit Picks"}
+        </button>
+        {!allPicked && <span style={{ color: T.grayText, fontSize: 12 }}>Complete all picks above to submit</span>}
+        {saveMsg === "saved" && <span style={{ color: T.tealGlow, fontWeight: 700, fontSize: 13 }}>✓ Picks saved for Week {currentWeek}!</span>}
+        {fbError && <span style={{ color: "#ff6666", fontSize: 12 }}>Save failed — check Firebase config</span>}
+      </div>
     </div>
   );
 }
