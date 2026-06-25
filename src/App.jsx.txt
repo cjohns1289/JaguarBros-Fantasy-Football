@@ -26,14 +26,13 @@ class ErrorBoundary extends Component {
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN",
-  databaseURL: "PASTE_YOUR_DATABASE_URL",
-  projectId: "PASTE_YOUR_PROJECT_ID",
+  apiKey: "AIzaSyAwihKVB3IeOqkdR1kSAFfrmTb9WSI2WJU",
+  authDomain: "jaguarbros-fantasy-football.firebaseapp.com",
+  databaseURL: "https://jaguarbros-fantasy-football-default-rtdb.firebaseio.com",
+  projectId: "jaguarbros-fantasy-football",
 };
 const SLEEPER_USERNAME = "CommishChris";
 const LEAGUE_START_YEAR = 2020;
-const ESPN_START_YEAR = 2014;
 
 // ─── ESPN HISTORICAL DATA (pre-Sleeper) ──────────────────────────────────────
 const ESPN_HISTORY = [
@@ -734,9 +733,7 @@ function LeagueHistory({ leagueData }) {
     async function fetchHistory() {
       try {
         setLoadingMsg("Walking season history via Sleeper...");
-        console.log("[LeagueHistory] Starting fetch. leagueInfo:", JSON.stringify(leagueData.leagueInfo?.league_id), "season:", leagueData.leagueInfo?.season, "prev_id:", leagueData.leagueInfo?.previous_league_id);
         const historicalSeasons = await getAllHistoricalLeagues(leagueData.leagueInfo, LEAGUE_START_YEAR);
-        console.log("[LeagueHistory] Got seasons:", historicalSeasons.map(s => s.year));
         setSeasons(historicalSeasons);
         if (historicalSeasons.length > 0) setSelectedYear(historicalSeasons[historicalSeasons.length - 1].year);
         setLoading(false);
@@ -765,8 +762,7 @@ function LeagueHistory({ leagueData }) {
         setPointsData(ownerPoints);
         setLoadingPoints(false);
       } catch (e) {
-        console.error("[LeagueHistory] Fatal error:", e.message, e.stack);
-        setError(e.message + " — Check browser console (F12) for details.");
+        setError(e.message);
         setLoading(false);
         setLoadingPoints(false);
       }
