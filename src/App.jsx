@@ -308,7 +308,7 @@ const S = {
   }),
   rankBadge: (i) => ({
     width: 28, height: 28, borderRadius: "50%",
-    background: i === 0 ? T.gold : i === 1 ? T.teal : T.grayMid,
+    background: i === 0 ? T.gold : i === 1 ? "#A8A9AD" : i === 2 ? "#CD7F32" : T.grayMid,
     color: i === 0 ? "#000" : T.white,
     display: "flex", alignItems: "center", justifyContent: "center",
     fontWeight: 900, fontSize: 13, flexShrink: 0,
@@ -575,21 +575,49 @@ function WeeklyPicks({ leagueData }) {
 
   if (!leagueData) return <Loading />;
 
-  if (!currentUser) {
+  // Confirmation step state
+  const [pendingUser, setPendingUser] = useState(null);
+
+  if (!currentUser && !pendingUser) {
     return (
       <div style={S.section}>
         <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
-        <div style={{ ...S.card, maxWidth: 380, padding: 28, margin: "0 auto", textAlign: "center" }}>
+        <div style={{ ...S.card, maxWidth: 400, padding: 28, margin: "0 auto", textAlign: "center" }}>
           <img src={LOGO_NAV} alt="logo" style={{ height: 50, width: "auto", marginBottom: 10, borderRadius: 4 }} />
           <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Who are you?</div>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 20 }}>Select your team to submit picks</div>
+          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 20 }}>Select your team to continue</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {standings.map(t => (
-              <button key={t.rosterId} style={{ ...S.btn(false), width: "100%", padding: "10px 16px", fontSize: 13, textAlign: "left" }} onClick={() => setCurrentUser(t.owner)}>
+              <button key={t.rosterId} style={{ ...S.btn(false), width: "100%", padding: "10px 16px", fontSize: 13, textAlign: "left" }} onClick={() => setPendingUser(t)}>
                 <span style={{ color: T.tealGlow, fontWeight: 900 }}>{t.team}</span>
                 <span style={{ color: T.grayText, marginLeft: 8 }}>({t.owner})</span>
               </button>
             ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser && pendingUser) {
+    return (
+      <div style={S.section}>
+        <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
+        <div style={{ ...S.card, maxWidth: 400, padding: 36, margin: "0 auto", textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 16 }}>🏈</div>
+          <div style={{ color: T.grayText, fontSize: 13, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase" }}>Confirm Your Identity</div>
+          <div style={{ fontWeight: 900, fontSize: 24, color: T.tealGlow, marginBottom: 4 }}>{pendingUser.team}</div>
+          <div style={{ color: T.grayText, fontSize: 14, marginBottom: 28 }}>Managed by <strong style={{ color: T.white }}>{pendingUser.owner}</strong></div>
+          <div style={{ background: `${T.teal}18`, border: `1px solid ${T.teal}44`, borderRadius: 8, padding: "12px 16px", marginBottom: 24, fontSize: 13, color: T.grayText, lineHeight: 1.6 }}>
+            ⚠️ Picks are locked to this team once submitted. Make sure this is you before continuing.
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button style={{ ...S.btn(false), flex: 1, padding: "12px 0", fontSize: 14 }} onClick={() => setPendingUser(null)}>
+              ← Not Me
+            </button>
+            <button style={{ ...S.btn(true), flex: 1, padding: "12px 0", fontSize: 14, fontWeight: 900 }} onClick={() => { setCurrentUser(pendingUser.owner); setPendingUser(null); }}>
+              Yes, That's Me ✓
+            </button>
           </div>
         </div>
       </div>
@@ -632,7 +660,7 @@ function WeeklyPicks({ leagueData }) {
       <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1 }}>SPECIAL PICKS</div>
       {[
         { key: "highestScore", label: "🔥 Highest Score This Week", isMatchup: false },
-        { key: "lowestScore", label: "💀 Lowest Score This Week", isMatchup: false },
+        { key: "lowestScore", label: "💩 Lowest Score This Week", isMatchup: false },
         { key: "biggestBlowout", label: "💥 Biggest Blowout Matchup", isMatchup: true },
       ].map(({ key, label, isMatchup }) => (
         <div key={key} style={{ ...S.pickCard, marginBottom: 10 }}>
@@ -648,14 +676,25 @@ function WeeklyPicks({ leagueData }) {
           </div>
         </div>
       ))}
-      <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-        <button style={{ ...S.btn(true), padding: "12px 32px", fontSize: 14, opacity: allPicked ? 1 : 0.5, cursor: allPicked ? "pointer" : "not-allowed" }} onClick={handleSave} disabled={!allPicked || saving}>
-          {saving ? "Saving..." : saved ? "✓ Picks Saved!" : "Submit Picks"}
-        </button>
-        {!allPicked && <span style={{ color: T.grayText, fontSize: 12 }}>Complete all picks to submit</span>}
-        {saved && <span style={{ color: T.tealGlow, fontWeight: 700, fontSize: 13 }}>Locked in for Week {currentWeek}!</span>}
-        {fbError && <span style={{ color: "#ff6666", fontSize: 12 }}>Save failed — check Firebase config</span>}
-      </div>
+      {saved ? (
+        <div style={{ marginTop: 22, background: `${T.teal}18`, border: `2px solid ${T.teal}`, borderRadius: 8, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: 16 }}>✓ Picks Locked for Week {currentWeek}</div>
+            <div style={{ color: T.grayText, fontSize: 12, marginTop: 4 }}>Submitted as <strong style={{ color: T.white }}>{currentUser}</strong> — picks are saved and locked.</div>
+          </div>
+          <button style={{ ...S.btn(false), fontSize: 12, padding: "8px 16px" }} onClick={() => { setSaved(false); }}>
+            ✏️ Edit Picks
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <button style={{ ...S.btn(true), padding: "12px 32px", fontSize: 14, opacity: allPicked ? 1 : 0.5, cursor: allPicked ? "pointer" : "not-allowed" }} onClick={handleSave} disabled={!allPicked || saving}>
+            {saving ? "Saving..." : "Submit Picks"}
+          </button>
+          {!allPicked && <span style={{ color: T.grayText, fontSize: 12 }}>Complete all picks to submit</span>}
+          {fbError && <span style={{ color: "#ff6666", fontSize: 12 }}>Save failed — check Firebase config</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -878,7 +917,7 @@ function LeagueHistory({ leagueData }) {
 
         <div style={S.card}>
           <div style={{ background: "linear-gradient(90deg,#1a0000,#2a0a0a)", padding: "12px 18px", borderBottom: `2px solid #660000`, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 20 }}>💀</span>
+            <span style={{ fontSize: 20 }}>💩</span>
             <span style={{ fontWeight: 900, color: "#ff6666", fontSize: 14, letterSpacing: 2, textTransform: "uppercase" }}>Sacko Record</span>
             <span style={{ marginLeft: "auto", fontSize: 10, color: T.grayText, letterSpacing: 1 }}>{ESPN_START_YEAR}–PRESENT</span>
           </div>
@@ -888,7 +927,7 @@ function LeagueHistory({ leagueData }) {
               <div key={owner} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: `1px solid ${T.grayMid}` }}>
                 <div style={{ fontWeight: 700, color: T.white }}>{owner}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {Array.from({ length: Math.min(count, 5) }).map((_, i) => <span key={i} style={{ fontSize: 16 }}>💀</span>)}
+                  {Array.from({ length: Math.min(count, 5) }).map((_, i) => <span key={i} style={{ fontSize: 16 }}>💩</span>)}
                   <span style={{ ...S.badge("red"), marginLeft: 4 }}>{count}x</span>
                 </div>
               </div>
@@ -962,8 +1001,8 @@ function LeagueHistory({ leagueData }) {
               </div>
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {selectedSeason.champ && <span style={{ color: T.goldLight, fontSize: 12 }}>🏆 <strong>{selectedSeason.champ.owner}</strong></span>}
-                {selectedSeason.sacko && <span style={{ color: "#ff6666", fontSize: 12 }}>💀 <strong>{selectedSeason.sacko.owner}</strong></span>}
-                {!selectedSeason.sacko && <span style={{ color: T.grayText, fontSize: 12 }}>💀 Sacko: no record</span>}
+                {selectedSeason.sacko && <span style={{ color: "#ff6666", fontSize: 12 }}>💩 <strong>{selectedSeason.sacko.owner}</strong></span>}
+                {!selectedSeason.sacko && <span style={{ color: T.grayText, fontSize: 12 }}>💩 Sacko: no record</span>}
               </div>
             </div>
 
@@ -982,7 +1021,7 @@ function LeagueHistory({ leagueData }) {
                   )}
                   {selectedSeason.sacko && (
                     <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 32 }}>💀</div>
+                      <div style={{ fontSize: 32 }}>💩</div>
                       <div style={{ fontWeight: 900, color: "#ff6666", fontSize: 16 }}>{selectedSeason.sacko.owner}</div>
                       <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1 }}>SACKO</div>
                     </div>
@@ -1009,7 +1048,7 @@ function LeagueHistory({ leagueData }) {
                         <td style={S.tdR}>{t.pts.toFixed(2)}</td>
                         <td style={S.tdR}>
                           {isChamp && <span style={S.badge("gold")}>🏆 CHAMP</span>}
-                          {isSacko && <span style={S.badge("red")}>💀 SACKO</span>}
+                          {isSacko && <span style={S.badge("red")}>💩 SACKO</span>}
                         </td>
                       </tr>
                     );
