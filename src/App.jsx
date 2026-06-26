@@ -249,6 +249,78 @@ async function fbSet(path, data) {
   try { const r = await fetch(`${fbBase()}/${path}.json`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }); return r.ok; } catch { return false; }
 }
 
+
+// ─── PICKS WINDOW UTILITIES ──────────────────────────────────────────────────
+// Returns current time as a Date object in US Eastern time (auto EDT/EST)
+function getNowEastern() {
+  // Intl API gives us the correct UTC offset for Eastern including DST
+  const now = new Date();
+  const easternStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+  return new Date(easternStr);
+}
+
+// Returns true if picks are currently open
+// Opens: Tuesday 3:00am Eastern
+// Locks: Thursday 8:15pm Eastern
+function isPicksWindowOpen() {
+  const now = getNowEastern();
+  const day = now.getDay();   // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const timeVal = hour * 60 + minute; // minutes since midnight
+
+  const OPEN_DAY = 2;          // Tuesday
+  const OPEN_TIME = 3 * 60;    // 3:00am = 180 mins
+  const LOCK_DAY = 4;          // Thursday
+  const LOCK_TIME = 20 * 60 + 15; // 8:15pm = 1215 mins
+
+  // Window: Tue 3:00am through Thu 8:15pm
+  if (day === OPEN_DAY && timeVal >= OPEN_TIME) return true;  // Tue after 3am
+  if (day === 3) return true;                                   // All of Wednesday
+  if (day === LOCK_DAY && timeVal < LOCK_TIME) return true;   // Thu before 8:15pm
+  return false;
+}
+
+// Returns a human-readable string of when picks open/close next
+function getPicksWindowMessage() {
+  const now = getNowEastern();
+  const day = now.getDay();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const timeVal = hour * 60 + minute;
+
+  const OPEN_DAY = 2;
+  const OPEN_TIME = 3 * 60;
+  const LOCK_DAY = 4;
+  const LOCK_TIME = 20 * 60 + 15;
+
+  if (isPicksWindowOpen()) {
+    // Show time until lock
+    if (day === LOCK_DAY) {
+      const minsLeft = LOCK_TIME - timeVal;
+      const h = Math.floor(minsLeft / 60);
+      const m = minsLeft % 60;
+      return `🔒 Picks lock in ${h}h ${m}m (Thu 8:15pm ET)`;
+    }
+    return "🔒 Picks lock Thursday at 8:15pm ET";
+  } else {
+    // Show time until open
+    const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    if (day === LOCK_DAY && timeVal >= LOCK_TIME) return "🔐 Picks are locked. Opens Tuesday at 3:00am ET.";
+    if (day === 5) return "🔐 Picks are locked. Opens Tuesday at 3:00am ET.";
+    if (day === 6) return "🔐 Picks are locked. Opens Tuesday at 3:00am ET.";
+    if (day === 0) return "🔐 Picks are locked. Opens Tuesday at 3:00am ET.";
+    if (day === 1) return "🔐 Picks are locked. Opens Tuesday at 3:00am ET.";
+    if (day === OPEN_DAY && timeVal < OPEN_TIME) {
+      const minsLeft = OPEN_TIME - timeVal;
+      const h = Math.floor(minsLeft / 60);
+      const m = minsLeft % 60;
+      return `🔐 Picks open in ${h}h ${m}m (Tue 3:00am ET)`;
+    }
+    return "🔐 Picks are locked.";
+  }
+}
+
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
   app: { fontFamily: "'Segoe UI', Arial, sans-serif", background: T.black, minHeight: "100vh", color: T.white },
@@ -606,6 +678,17 @@ function WeeklyPicks({ leagueData }) {
   const [loadingMatchups, setLoadingMatchups] = useState(false);
   const [fbError, setFbError] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(!!window.google?.accounts);
+  const [picksOpen, setPicksOpen] = useState(isPicksWindowOpen());
+  const [windowMsg, setWindowMsg] = useState(getPicksWindowMessage());
+
+  // Re-check picks window every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPicksOpen(isPicksWindowOpen());
+      setWindowMsg(getPicksWindowMessage());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const standings = leagueData ? buildStandingsFromData(leagueData.rosters, leagueData.users) : [];
   const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
@@ -717,6 +800,27 @@ function WeeklyPicks({ leagueData }) {
 
   if (!leagueData) return <Loading />;
 
+  // ── Picks window closed
+  if (!picksOpen) {
+    return (
+      <div style={S.section}>
+        <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
+        <div style={{ ...S.card, maxWidth: 460, padding: 48, margin: "0 auto", textAlign: "center" }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>🔐</div>
+          <div style={{ fontWeight: 900, fontSize: 22, color: T.white, marginBottom: 10 }}>
+            Picks Are Locked
+          </div>
+          <div style={{ color: T.grayText, fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
+            The picks window is closed. Picks open every <strong style={{ color: T.white }}>Tuesday at 3:00am ET</strong> and lock every <strong style={{ color: T.white }}>Thursday at 8:15pm ET</strong> when the first NFL game kicks off.
+          </div>
+          <div style={{ background: `${T.teal}18`, border: `1px solid ${T.teal}`, borderRadius: 8, padding: "14px 20px", fontSize: 14, color: T.tealGlow, fontWeight: 700 }}>
+            {windowMsg}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Not signed in
   if (!googleUser) {
     return (
@@ -797,6 +901,11 @@ function WeeklyPicks({ leagueData }) {
   return (
     <div style={S.section}>
       <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
+
+      {/* Picks window countdown banner */}
+      <div style={{ background: `${T.teal}18`, border: `1px solid ${T.teal}44`, borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 13, color: T.tealGlow, fontWeight: 600 }}>
+        {windowMsg}
+      </div>
 
       {/* User header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, background: T.gray, border: `1px solid ${T.grayMid}`, borderRadius: 8, padding: "12px 18px" }}>
