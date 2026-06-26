@@ -597,6 +597,8 @@ function WeeklyPicks({ leagueData }) {
     try { const s = sessionStorage.getItem("jbff_guser"); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [mappedTeam, setMappedTeam] = useState(null);
+  const [claimedRosterIds, setClaimedRosterIds] = useState(new Set());
+  const [loadingMap, setLoadingMap] = useState(false);
   const [picks, setPicks] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
@@ -616,6 +618,19 @@ function WeeklyPicks({ leagueData }) {
     script.src = "https://accounts.google.com/gsi/client";
     script.onload = () => setScriptLoaded(true);
     document.head.appendChild(script);
+  }, []);
+
+  // Fetch all claimed teams from Firebase on load
+  useEffect(() => {
+    if (!fbReady()) return;
+    setLoadingMap(true);
+    fbGet("usermap").then(data => {
+      if (data) {
+        const claimed = new Set(Object.values(data).map(v => v.rosterId).filter(Boolean));
+        setClaimedRosterIds(claimed);
+      }
+      setLoadingMap(false);
+    }).catch(() => setLoadingMap(false));
   }, []);
 
   // Persist Google user to session
@@ -671,12 +686,25 @@ function WeeklyPicks({ leagueData }) {
     try { sessionStorage.removeItem("jbff_guser"); } catch {}
   };
 
-  // Commissioner team mapping save
+  // Team claim — checks server-side that team isn't already taken
   const handleMapTeam = async (team) => {
     if (!googleUser || !fbReady()) return;
-    const mapping = { owner: team.owner, team: team.team, rosterId: team.rosterId, googleUid: googleUser.uid, email: googleUser.email };
+    // Re-fetch latest usermap to prevent race conditions
+    const latest = await fbGet("usermap");
+    const alreadyClaimed = latest
+      ? Object.values(latest).some(v => v.rosterId === team.rosterId)
+      : false;
+    if (alreadyClaimed) {
+      alert(`${team.team} has already been claimed by another user. Please select a different team or contact the commissioner.`);
+      // Refresh claimed list
+      const claimed = new Set(Object.values(latest).map(v => v.rosterId).filter(Boolean));
+      setClaimedRosterIds(claimed);
+      return;
+    }
+    const mapping = { owner: team.owner, team: team.team, rosterId: team.rosterId, googleUid: googleUser.uid, email: googleUser.email, claimedAt: new Date().toISOString() };
     await fbSet(`usermap/${googleUser.uid}`, mapping);
     setMappedTeam(mapping);
+    setClaimedRosterIds(prev => new Set([...prev, team.rosterId]));
   };
 
   const upcomingMatchups = matchups ? matchups.filter(m => !m.complete) : [];
@@ -710,7 +738,8 @@ function WeeklyPicks({ leagueData }) {
   }
 
   // ── Signed in but not mapped to a team yet
-  if (!mappedTeam) {
+  if (!mappedTeam && !loadingMap) {
+    const unclaimedTeams = standings.filter(t => !claimedRosterIds.has(t.rosterId));
     return (
       <div style={S.section}>
         <div style={S.sectionTitle}>🎯 Weekly Picks — Week {currentWeek}</div>
@@ -723,24 +752,46 @@ function WeeklyPicks({ leagueData }) {
             </div>
             <button style={{ ...S.btn(false), marginLeft: "auto", fontSize: 11, padding: "4px 10px" }} onClick={handleSignOut}>Sign Out</button>
           </div>
-          <div style={{ fontWeight: 700, color: T.white, fontSize: 15, marginBottom: 6 }}>Select Your Fantasy Team</div>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 18, lineHeight: 1.5 }}>
-            Your Google account hasn't been linked to a team yet. Select your team below. This only needs to be done once.
+          <div style={{ fontWeight: 700, color: T.white, fontSize: 15, marginBottom: 6 }}>Claim Your Fantasy Team</div>
+          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>
+            Your Google account hasn't been linked to a team yet. Select your team below — <strong style={{ color: T.goldLight }}>each team can only be claimed once.</strong>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {standings.map(t => (
-              <button key={t.rosterId}
-                style={{ ...S.btn(false), width: "100%", padding: "11px 16px", fontSize: 13, textAlign: "left" }}
-                onClick={() => handleMapTeam(t)}>
-                <span style={{ color: T.tealGlow, fontWeight: 900 }}>{t.team}</span>
-                <span style={{ color: T.grayText, marginLeft: 8 }}>({t.owner})</span>
-              </button>
-            ))}
+          <div style={{ color: T.grayText, fontSize: 11, marginBottom: 18, lineHeight: 1.5, background: `${T.teal}18`, border: `1px solid ${T.teal}33`, borderRadius: 6, padding: "8px 12px" }}>
+            ⚠️ Once claimed, your team is permanently linked to your Google account. If you claim the wrong team, contact the commissioner to fix it.
           </div>
+          {unclaimedTeams.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 20, color: T.grayText, fontSize: 13 }}>
+              All teams have been claimed. If this is an error, contact the commissioner.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {unclaimedTeams.map(t => (
+                <button key={t.rosterId}
+                  style={{ ...S.btn(false), width: "100%", padding: "11px 16px", fontSize: 13, textAlign: "left" }}
+                  onClick={() => handleMapTeam(t)}>
+                  <span style={{ color: T.tealGlow, fontWeight: 900 }}>{t.team}</span>
+                  <span style={{ color: T.grayText, marginLeft: 8 }}>({t.owner})</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {standings.filter(t => claimedRosterIds.has(t.rosterId)).length > 0 && (
+            <div style={{ marginTop: 16, borderTop: `1px solid ${T.grayMid}`, paddingTop: 14 }}>
+              <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Already Claimed</div>
+              {standings.filter(t => claimedRosterIds.has(t.rosterId)).map(t => (
+                <div key={t.rosterId} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${T.grayMid}22` }}>
+                  <span style={{ color: T.grayText, fontSize: 12, fontWeight: 700 }}>{t.team}</span>
+                  <span style={{ ...S.badge("teal"), fontSize: 10 }}>✓ CLAIMED</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
+
+  if (loadingMap) return <Loading msg="Checking team registrations..." />;
 
   // ── Signed in and mapped — show picks form
   return (
