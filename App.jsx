@@ -901,12 +901,16 @@ function Scoreboard({ leagueData }) {
                 ...S.btn(week === w),
                 flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700,
                 minWidth: 0, textAlign: "center",
-                borderColor: w > 14 ? (week === w ? T.goldLight : `${T.gold}44`) : undefined,
-                color: w > 14 ? (week === w ? T.goldLight : T.grayText) : undefined,
-                background: w > 14 && week === w ? `${T.gold}22` : undefined,
+                borderColor: w > 14
+                  ? (week === w ? T.goldLight : `${T.gold}55`)
+                  : (week === w ? T.tealGlow : T.grayMid),
+                color: w > 14
+                  ? (week === w ? T.goldLight : T.grayText)
+                  : (week === w ? T.tealGlow : T.grayText),
+                background: w > 14 && week === w ? `${T.gold}22` : "transparent",
               }}
               onClick={() => setWeek(w)}>
-              {w > 14 ? `PO${w - 14}` : `Wk ${w}`}
+              Wk {w}
             </button>
           ))}
         </div>
