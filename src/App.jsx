@@ -429,20 +429,20 @@ const S = {
   app: { fontFamily: "'Segoe UI', Arial, sans-serif", background: T.black, minHeight: "100vh", color: T.white },
   nav: {
     background: "linear-gradient(90deg,#000 0%,#003840 60%,#006778 100%)",
-    borderBottom: `2px solid ${T.teal}`, padding: "0 20px",
+    borderBottom: `2px solid ${T.teal}`, padding: "0 12px",
     display: "flex", alignItems: "center", justifyContent: "space-between",
     position: "sticky", top: 0, zIndex: 100,
-    boxShadow: `0 2px 20px ${T.teal}44`, flexWrap: "wrap", gap: 4,
+    boxShadow: `0 2px 20px ${T.teal}44`, overflow: "hidden",
   },
   navLogo: { display: "flex", alignItems: "center", gap: 10, padding: "12px 0" },
-  navLogoText: { fontSize: 18, fontWeight: 900, color: T.white, letterSpacing: 1, lineHeight: 1.1 },
+  navLogoText: { fontSize: 14, fontWeight: 900, color: T.white, letterSpacing: 1, lineHeight: 1.1 },
   navLogoSub: { color: T.tealGlow, fontSize: 10, letterSpacing: 3, textTransform: "uppercase" },
   navBtn: (a) => ({
-    padding: "16px 11px", background: "transparent", border: "none",
+    padding: "14px 8px", background: "transparent", border: "none",
     borderBottom: `3px solid ${a ? T.tealGlow : "transparent"}`,
     color: a ? T.tealGlow : T.grayText, cursor: "pointer",
-    fontWeight: a ? 700 : 400, fontSize: 11, letterSpacing: 1,
-    textTransform: "uppercase", transition: "all 0.15s", whiteSpace: "nowrap",
+    fontWeight: a ? 700 : 400, fontSize: 10, letterSpacing: 0.5,
+    textTransform: "uppercase", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0,
   }),
   hero: {
     background: "linear-gradient(135deg,#000 0%,#001f26 40%,#003840 70%,#006778 100%)",
@@ -465,9 +465,9 @@ const S = {
   heroStatLabel: { fontSize: 10, color: T.grayText, letterSpacing: 2, textTransform: "uppercase" },
   section: { maxWidth: 1100, margin: "0 auto", padding: "36px 20px" },
   sectionTitle: {
-    fontSize: 20, fontWeight: 900, textTransform: "uppercase", letterSpacing: 3,
+    fontSize: "clamp(14px, 4vw, 20px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: 2,
     color: T.tealGlow, marginBottom: 20, borderBottom: `2px solid ${T.teal}`,
-    paddingBottom: 8, display: "flex", alignItems: "center", gap: 8,
+    paddingBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
   },
   card: { background: T.gray, border: `1px solid ${T.grayMid}`, borderRadius: 8, overflow: "hidden" },
   table: { width: "100%", borderCollapse: "collapse" },
@@ -602,6 +602,7 @@ function JaguarsTile() {
   const [jaxGame, setJaxGame] = useState(null);
   const [record, setRecord] = useState(null);
   const [oppRecord, setOppRecord] = useState(null);
+  const [espnKickoff, setEspnKickoff] = useState(null);
   const [loading, setLoading] = useState(true);
   const [debugInfo, setDebugInfo] = useState(null);
 
@@ -667,6 +668,28 @@ function JaguarsTile() {
           setOppRecord({ w: ow, l: ol, t: ot });
         }
         console.log("[JAX] Target:", target?.week, target?.home, "vs", target?.away, "date:", target?.date);
+
+        // Fetch real kickoff time from ESPN API
+        if (target?.week) {
+          try {
+            const espnData = await fetchWithFallback(
+              `https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/jax/schedule?season=${season}`
+            );
+            const events = espnData?.events || [];
+            const match = events.find(e => e?.week?.number === target.week);
+            if (match?.date) {
+              const kickoffDate = new Date(match.date);
+              const kickoffStr = kickoffDate.toLocaleString("en-US", {
+                timeZone: "America/New_York",
+                hour: "numeric", minute: "2-digit", hour12: true,
+              });
+              setEspnKickoff(kickoffStr + " ET");
+              console.log("[JAX] ESPN kickoff:", kickoffStr);
+            }
+          } catch(e) {
+            console.warn("[JAX] ESPN kickoff fetch failed:", e.message);
+          }
+        }
       } catch(e) {
         console.warn("[JAX] Error:", e.message);
       }
@@ -714,13 +737,11 @@ function JaguarsTile() {
   // Display actual game time from Sleeper, defaulting to 1:00 PM ET for Sunday games if no time given
   // Sleeper's schedule date field contains only the date, not actual kickoff time
   // Show date only to avoid displaying a fabricated/incorrect time
-  // Sleeper schedule only provides date (no real kickoff time)
-  // Show clean date — user can check Sleeper app for exact kickoff time
-  const timeStr = gameDate
-    ? gameDate.toLocaleString("en-US", {
-        timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric",
-      })
-    : "TBD";
+  // Build time string — kickoff fetched via ESPN in load(), stored in espnKickoff state
+  const dateStr = gameDate ? gameDate.toLocaleString("en-US", {
+    timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric",
+  }) : "TBD";
+  const timeStr = gameDate ? (espnKickoff ? `${dateStr} · ${espnKickoff}` : dateStr) : "TBD";
 
   return (
     <div style={container}>
@@ -801,20 +822,24 @@ function Standings({ leagueData }) {
     <div style={S.section}>
       <div style={S.sectionTitle}>🏆 Standings — {isOffseason() ? "Completed" : `Week ${week}`}</div>
       <div style={S.card}>
-        <table style={S.table}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        <table style={{ ...S.table, minWidth: 380 }}>
           <thead><tr>
-            <th style={S.th}>#</th><th style={S.th}>Team</th><th style={S.th}>Owner</th>
-            <th style={S.thR}>W</th><th style={S.thR}>L</th><th style={S.thR}>PTS</th>
+            <th style={S.th}>#</th>
+            <th style={S.th}>Team</th>
+            <th style={S.thR}>W</th>
+            <th style={S.thR}>L</th>
+            <th style={S.thR}>PTS</th>
           </tr></thead>
           <tbody>
             {standings.map((t, i) => (
               <tr key={t.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
-                <td style={S.td}><span style={S.rankBadge(i)}>{i + 1}</span></td>
+                <td style={{ ...S.td, width: 44 }}><span style={S.rankBadge(i)}>{i + 1}</span></td>
                 <td style={S.td}>
-                  <span style={{ fontWeight: 700, color: i < 6 ? T.tealGlow : T.white }}>{t.team}</span>
-                  {i < 6 && <span style={{ ...S.badge("teal"), marginLeft: 8 }}>PLAYOFFS</span>}
+                  <div style={{ fontWeight: 700, color: i < 6 ? T.tealGlow : T.white, fontSize: 13 }}>{t.team}</div>
+                  <div style={{ fontSize: 11, color: T.grayText, marginTop: 1 }}>{t.owner}</div>
+                  {i < 6 && <span style={{ ...S.badge("teal"), marginTop: 3, display: "inline-block", fontSize: 9 }}>PLAYOFFS</span>}
                 </td>
-                <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
                 <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
                 <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
                 <td style={S.tdR}>{t.pts.toFixed(2)}</td>
@@ -822,6 +847,7 @@ function Standings({ leagueData }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -846,17 +872,62 @@ function Scoreboard({ leagueData }) {
   }, [leagueData, week]);
 
   if (!leagueData) return <Loading />;
-  const weeks = Array.from({ length: currentWeek }, (_, i) => i + 1);
+  const totalWeeks = 17;
+  const weeks = Array.from({ length: totalWeeks }, (_, i) => i + 1);
 
   return (
     <div style={S.section}>
       <div style={S.sectionTitle}>🏈 Scoreboard</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-        {weeks.map(w => <button key={w} style={S.btn(week === w)} onClick={() => setWeek(w)}>Wk {w}</button>)}
+      <div style={{ marginBottom: 20 }}>
+        {/* Row 1: Weeks 1-9 */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "nowrap" }}>
+          {weeks.slice(0, 9).map(w => (
+            <button key={w}
+              style={{
+                ...S.btn(week === w),
+                flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700,
+                minWidth: 0, textAlign: "center",
+              }}
+              onClick={() => setWeek(w)}>
+              Wk {w}
+            </button>
+          ))}
+        </div>
+        {/* Row 2: Weeks 10-17 */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "nowrap" }}>
+          {weeks.slice(9).map(w => (
+            <button key={w}
+              style={{
+                ...S.btn(week === w),
+                flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700,
+                minWidth: 0, textAlign: "center",
+                borderColor: w > 14 ? (week === w ? T.goldLight : `${T.gold}44`) : undefined,
+                color: w > 14 ? (week === w ? T.goldLight : T.grayText) : undefined,
+                background: w > 14 && week === w ? `${T.gold}22` : undefined,
+              }}
+              onClick={() => setWeek(w)}>
+              {w > 14 ? `PO${w - 14}` : `Wk ${w}`}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+          <span style={{ fontSize: 10, color: T.grayText, letterSpacing: 1 }}>
+            <span style={{ color: `${T.gold}88` }}>■</span> = Playoff Weeks
+          </span>
+        </div>
       </div>
       {loading && <Loading msg={`Fetching Week ${week} scores...`} />}
       {error && <ErrBox msg={error} />}
-      {!loading && !error && matchups && (
+      {!loading && !error && matchups && matchups.length === 0 && (
+        <div style={{ ...S.card, padding: 36, textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🏈</div>
+          <div style={{ fontWeight: 700, color: T.white, fontSize: 16, marginBottom: 6 }}>Week {week} — Not Yet Played</div>
+          <div style={{ color: T.grayText, fontSize: 13 }}>
+            Matchup results will appear here once Week {week} games are complete.
+          </div>
+        </div>
+      )}
+      {!loading && !error && matchups && matchups.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {matchups.map(m => {
             const hW = m.complete && m.homePts > m.awayPts;
@@ -869,9 +940,9 @@ function Scoreboard({ leagueData }) {
               }}>
                 {/* Home team */}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                  <div style={{ fontWeight: 900, fontSize: 17, color: hW ? T.tealGlow : T.white }}>{m.home.team}</div>
+                  <div style={{ fontWeight: 900, fontSize: 17, color: hW ? T.goldLight : T.white }}>{m.home.team}</div>
                   <div style={{ fontSize: 12, color: T.grayText }}>{m.home.owner}</div>
-                  {hW && <span style={{ ...S.badge("teal"), fontSize: 9, marginTop: 2 }}>WIN</span>}
+                  {hW && <span style={{ ...S.badge("gold"), fontSize: 9, marginTop: 2 }}>WIN</span>}
                   {aW && <span style={{ fontSize: 9, color: T.grayText, marginTop: 2 }}>LOSS</span>}
                 </div>
 
@@ -880,11 +951,11 @@ function Scoreboard({ leagueData }) {
                   {m.complete ? (
                     <>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                        <span style={{ fontSize: 32, fontWeight: 900, color: hW ? T.tealGlow : T.white, minWidth: 64, textAlign: "right" }}>
+                        <span style={{ fontSize: 32, fontWeight: 900, color: hW ? T.goldLight : T.white, minWidth: 64, textAlign: "right" }}>
                           {m.homePts.toFixed(2)}
                         </span>
                         <span style={{ color: T.grayText, fontSize: 16, fontWeight: 300 }}>—</span>
-                        <span style={{ fontSize: 32, fontWeight: 900, color: aW ? T.tealGlow : T.white, minWidth: 64, textAlign: "left" }}>
+                        <span style={{ fontSize: 32, fontWeight: 900, color: aW ? T.goldLight : T.white, minWidth: 64, textAlign: "left" }}>
                           {m.awayPts.toFixed(2)}
                         </span>
                       </div>
@@ -900,9 +971,9 @@ function Scoreboard({ leagueData }) {
 
                 {/* Away team */}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                  <div style={{ fontWeight: 900, fontSize: 17, color: aW ? T.tealGlow : T.white }}>{m.away.team}</div>
+                  <div style={{ fontWeight: 900, fontSize: 17, color: aW ? T.goldLight : T.white }}>{m.away.team}</div>
                   <div style={{ fontSize: 12, color: T.grayText }}>{m.away.owner}</div>
-                  {aW && <span style={{ ...S.badge("teal"), fontSize: 9, marginTop: 2 }}>WIN</span>}
+                  {aW && <span style={{ ...S.badge("gold"), fontSize: 9, marginTop: 2 }}>WIN</span>}
                   {hW && <span style={{ fontSize: 9, color: T.grayText, marginTop: 2 }}>LOSS</span>}
                 </div>
               </div>
@@ -941,7 +1012,7 @@ function Teams({ leagueData }) {
                 <div style={{ fontSize: 9, color: T.grayText, letterSpacing: 1 }}>TOTAL PTS</div>
               </div>
             </div>
-            {i < 6 && <div style={{ marginTop: 10 }}><span style={S.badge("teal")}>PLAYOFF BOUND</span></div>}
+            {i < 6 && !isOffseason() && <div style={{ marginTop: 10 }}><span style={S.badge("teal")}>PLAYOFF BOUND</span></div>}
           </div>
         ))}
       </div>
@@ -1473,7 +1544,75 @@ function WeeklyPicks({ leagueData }) {
         </div>
       </div>
 
-      {/* Biggest Blowout — pick from the 6 live matchups */}
+            {/* Highest Score — pick a team */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score This Week</span>
+          {picks.highestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
+        </div>
+        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {standings.map(t => (
+            <button key={t.rosterId} style={S.btn(picks.highestScore === t.rosterId)}
+              onClick={() => handlePick("highestScore", t.rosterId)}>{t.team}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lowest Score — pick a team */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💩 Lowest Score This Week</span>
+          {picks.lowestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
+        </div>
+        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {standings.map(t => (
+            <button key={t.rosterId} style={S.btn(picks.lowestScore === t.rosterId)}
+              onClick={() => handlePick("lowestScore", t.rosterId)}>{t.team}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Highest Score Total — numeric guess */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🎯 Highest Score Total — Enter Your Guess</span>
+          {picks.highestScoreGuess !== undefined && picks.highestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
+        </div>
+        <div style={{ padding: "14px 18px" }}>
+          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+            Guess the highest team score this week. Closest guess wins a point — ties broken by earliest submission time.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <input type="number" step="0.01" min="0" max="300" placeholder="e.g. 142.50"
+              value={picks.highestScoreGuess ?? ""}
+              onChange={e => handlePick("highestScoreGuess", e.target.value)}
+              style={{ ...S.input, maxWidth: 160, marginBottom: 0, fontSize: 16, fontWeight: 700 }} />
+            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Lowest Score Total — numeric guess */}
+      <div style={{ ...S.pickCard, marginBottom: 10 }}>
+        <div style={S.pickHeader}>
+          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🎯 Lowest Score Total — Enter Your Guess</span>
+          {picks.lowestScoreGuess !== undefined && picks.lowestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
+        </div>
+        <div style={{ padding: "14px 18px" }}>
+          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+            Guess the lowest team score this week. Closest guess wins a point — ties broken by earliest submission time.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <input type="number" step="0.01" min="0" max="300" placeholder="e.g. 78.25"
+              value={picks.lowestScoreGuess ?? ""}
+              onChange={e => handlePick("lowestScoreGuess", e.target.value)}
+              style={{ ...S.input, maxWidth: 160, marginBottom: 0, fontSize: 16, fontWeight: 700 }} />
+            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Biggest Blowout — LAST special pick */}
       <div style={{ ...S.pickCard, marginBottom: 10 }}>
         <div style={S.pickHeader}>
           <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💥 Biggest Blowout Matchup</span>
@@ -1491,120 +1630,6 @@ function WeeklyPicks({ leagueData }) {
               ))
             : <div style={{ color: T.grayText, fontSize: 12 }}>Matchups loading...</div>
           }
-        </div>
-      </div>
-
-      {/* Numeric Guess Fields */}
-      <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1, textTransform: "uppercase" }}>
-        🎯 Score Predictions
-      </div>
-
-      {/* Highest Score Total Guess */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score Total — Enter Your Guess</span>
-          {picks.highestScoreGuess !== undefined && picks.highestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
-        </div>
-        <div style={{ padding: "14px 18px" }}>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
-            Guess the highest individual team score this week. Closest guess wins a point. Ties broken by earliest submission time.
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="300"
-              placeholder="e.g. 142.50"
-              value={picks.highestScoreGuess ?? ""}
-              onChange={e => handlePick("highestScoreGuess", e.target.value)}
-              style={{ ...S.input, maxWidth: 160, marginBottom: 0 }}
-            />
-            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Lowest Score Total Guess */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💩 Lowest Score Total — Enter Your Guess</span>
-          {picks.lowestScoreGuess !== undefined && picks.lowestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
-        </div>
-        <div style={{ padding: "14px 18px" }}>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
-            Guess the lowest individual team score this week. Closest guess wins a point. Ties broken by earliest submission time.
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="300"
-              placeholder="e.g. 78.25"
-              value={picks.lowestScoreGuess ?? ""}
-              onChange={e => handlePick("lowestScoreGuess", e.target.value)}
-              style={{ ...S.input, maxWidth: 160, marginBottom: 0 }}
-            />
-            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Numeric guess fields */}
-      <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 12, letterSpacing: 1, textTransform: "uppercase", marginTop: 8 }}>
-        🎯 Score Predictions
-      </div>
-
-      {/* Highest Score Total */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score Total — Enter Your Guess</span>
-          {picks.highestScoreGuess !== undefined && picks.highestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
-        </div>
-        <div style={{ padding: "14px 18px" }}>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
-            Guess the highest fantasy team score this week. Closest guess wins a point — ties broken by earliest submission time.
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="300"
-              placeholder="e.g. 142.50"
-              value={picks.highestScoreGuess ?? ""}
-              onChange={e => handlePick("highestScoreGuess", e.target.value)}
-              style={{ ...S.input, marginBottom: 0, maxWidth: 160, fontSize: 16, fontWeight: 700 }}
-            />
-            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Lowest Score Total */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💩 Lowest Score Total — Enter Your Guess</span>
-          {picks.lowestScoreGuess !== undefined && picks.lowestScoreGuess !== "" && <span style={S.badge("teal")}>✓ ENTERED</span>}
-        </div>
-        <div style={{ padding: "14px 18px" }}>
-          <div style={{ color: T.grayText, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
-            Guess the lowest fantasy team score this week. Closest guess wins a point — ties broken by earliest submission time.
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="300"
-              placeholder="e.g. 78.25"
-              value={picks.lowestScoreGuess ?? ""}
-              onChange={e => handlePick("lowestScoreGuess", e.target.value)}
-              style={{ ...S.input, marginBottom: 0, maxWidth: 160, fontSize: 16, fontWeight: 700 }}
-            />
-            <span style={{ color: T.grayText, fontSize: 12 }}>points</span>
-          </div>
         </div>
       </div>
 
@@ -2638,104 +2663,363 @@ function WeeklyIncentives({ leagueData }) {
   );
 }
 
+
+// ─── ARCHIVE TAB ──────────────────────────────────────────────────────────────
+function Archive({ leagueData }) {
+  const [seasons, setSeasons] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMsg, setLoadingMsg] = useState("Loading season archive...");
+  const [selectedYear, setSelectedYear] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!leagueData) return;
+    async function fetchArchive() {
+      try {
+        setLoadingMsg("Fetching season history from Sleeper...");
+        const historicalSeasons = await getAllHistoricalLeagues(leagueData.leagueInfo, LEAGUE_START_YEAR);
+        setSeasons(historicalSeasons);
+        if (historicalSeasons.length > 0) {
+          // Default to most recent completed season
+          const completed = historicalSeasons.filter(s => s.info.status === "complete");
+          setSelectedYear(completed.length > 0
+            ? completed[completed.length - 1].year
+            : historicalSeasons[historicalSeasons.length - 1].year);
+        }
+        setLoading(false);
+      } catch(e) {
+        setError(e.message);
+        setLoading(false);
+      }
+    }
+    fetchArchive();
+  }, [leagueData]);
+
+  if (!leagueData) return <Loading />;
+  if (loading) return <Loading msg={loadingMsg} />;
+  if (error) return <ErrBox msg={`Archive error: ${error}`} />;
+  if (!seasons || seasons.length === 0) return <ErrBox msg="No archived seasons found." />;
+
+  const selectedSeason = seasons.find(s => s.year === selectedYear);
+  const standings = selectedSeason
+    ? buildStandingsFromData(selectedSeason.rosters, selectedSeason.users)
+    : [];
+  const champion = selectedSeason
+    ? findChampion(selectedSeason.winnersBracket, selectedSeason.rosters, selectedSeason.users, standings)
+    : null;
+  const sacko = standings.length > 0 ? standings[standings.length - 1] : null;
+  const topScorer = standings.length > 0 ? standings.reduce((a, b) => a.pts > b.pts ? a : b) : null;
+
+  return (
+    <div style={S.section}>
+      <div style={S.sectionTitle}>📚 Season Archive — Sleeper Era ({LEAGUE_START_YEAR}–Present)</div>
+
+      {/* Year selector */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+        {[...seasons].sort((a, b) => b.year - a.year).map(s => (
+          <button key={s.year}
+            style={{ ...S.btn(selectedYear === s.year) }}
+            onClick={() => setSelectedYear(s.year)}>
+            {s.year}
+            {s.info.status !== "complete" && <span style={{ fontSize: 9, color: T.tealGlow, marginLeft: 4 }}>LIVE</span>}
+          </button>
+        ))}
+      </div>
+
+      {selectedSeason && (
+        <>
+          {/* Only show summary cards if season has actual scoring data */}
+          {(() => {
+            const hasScores = standings.some(t => t.pts > 0);
+            const isComplete = selectedSeason.info.status === "complete";
+            const showCards = hasScores || isComplete;
+            return showCards ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
+            {/* Champion */}
+            <div style={{ ...S.card, padding: 20, borderTop: `3px solid ${T.gold}`, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🏆</div>
+              <div style={{ fontSize: 10, color: T.goldLight, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+                {selectedYear} Champion
+              </div>
+              {champion ? (
+                <>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: T.white }}>{champion.team}</div>
+                  <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>{champion.owner}</div>
+                </>
+              ) : (
+                <div style={{ color: T.grayText, fontSize: 13 }}>
+                  {selectedSeason.info.status !== "complete" ? "Season in progress" : "No data"}
+                </div>
+              )}
+            </div>
+
+            {/* Sacko */}
+            <div style={{ ...S.card, padding: 20, borderTop: "3px solid #660000", textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💩</div>
+              <div style={{ fontSize: 10, color: "#ff6666", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+                {selectedYear} Sacko
+              </div>
+              {sacko ? (
+                <>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: T.white }}>{sacko.team}</div>
+                  <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>{sacko.owner}</div>
+                  <div style={{ fontSize: 11, color: T.grayText, marginTop: 2 }}>{sacko.wins}–{sacko.losses}</div>
+                </>
+              ) : (
+                <div style={{ color: T.grayText, fontSize: 13 }}>No data</div>
+              )}
+            </div>
+
+            {/* Top Scorer */}
+            <div style={{ ...S.card, padding: 20, borderTop: `3px solid ${T.teal}`, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔥</div>
+              <div style={{ fontSize: 10, color: T.tealGlow, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+                Most Points
+              </div>
+              {topScorer ? (
+                <>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: T.white }}>{topScorer.team}</div>
+                  <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>{topScorer.owner}</div>
+                  <div style={{ fontSize: 13, color: T.tealGlow, fontWeight: 700, marginTop: 4 }}>{topScorer.pts.toFixed(2)} pts</div>
+                </>
+              ) : (
+                <div style={{ color: T.grayText, fontSize: 13 }}>No data</div>
+              )}
+            </div>
+
+            {/* League info */}
+            <div style={{ ...S.card, padding: 20, borderTop: `3px solid ${T.grayMid}`, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
+              <div style={{ fontSize: 10, color: T.grayText, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+                Season Info
+              </div>
+              <div style={{ fontSize: 13, color: T.white, fontWeight: 700 }}>{selectedYear} Season</div>
+              <div style={{ fontSize: 12, color: T.grayText, marginTop: 4 }}>
+                {standings.length} Teams
+              </div>
+              <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>
+                {selectedSeason.info.status === "complete" ? "✅ Completed" : "🔴 In Progress"}
+              </div>
+            </div>
+          </div>
+            ) : (
+              <div style={{ ...S.card, padding: 24, textAlign: "center", marginBottom: 28 }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🏈</div>
+                <div style={{ fontWeight: 700, color: T.white, fontSize: 16, marginBottom: 6 }}>Season Not Yet Started</div>
+                <div style={{ color: T.grayText, fontSize: 13 }}>
+                  Champion, Sacko, and top scorer will appear here once Week 1 games are complete.
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Final Standings Table */}
+          <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
+            Final Standings — {selectedYear}
+          </div>
+          <div style={S.card}>
+            <table style={S.table}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Rank</th>
+                  <th style={S.th}>Team</th>
+                  <th style={S.th}>Owner</th>
+                  <th style={S.thR}>W</th>
+                  <th style={S.thR}>L</th>
+                  <th style={S.thR}>PTS</th>
+                  <th style={S.thR}>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {standings.map((t, i) => {
+                  const isChamp = champion?.owner === t.owner && selectedSeason.info.status === "complete";
+                  const isSacko = i === standings.length - 1 && selectedSeason.info.status === "complete";
+                  const isTop6 = i < 6;
+                  return (
+                    <tr key={t.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
+                      <td style={S.td}>
+                        <span style={S.rankBadge(i)}>{i + 1}</span>
+                      </td>
+                      <td style={S.td}>
+                        <span style={{ fontWeight: 700, color: isChamp ? T.goldLight : isSacko ? "#ff6666" : isTop6 ? T.tealGlow : T.white }}>
+                          {t.team}
+                        </span>
+                      </td>
+                      <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
+                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
+                      <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
+                      <td style={S.tdR}>{t.pts.toFixed(2)}</td>
+                      <td style={S.tdR}>
+                        {isChamp && <span style={S.badge("gold")}>🏆 Champion</span>}
+                        {isSacko && !isChamp && <span style={S.badge("red")}>💩 Sacko</span>}
+                        {isTop6 && !isChamp && !isSacko && <span style={S.badge("teal")}>Playoffs</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 // ─── RULES TAB ────────────────────────────────────────────────────────────────
 const RULES = [
   { category: "League", title: "Roster Size", detail: "15 players: 1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 K, 1 DST, 6 Bench", icon: "🏈" },
-  { category: "League", title: "Scoring Format", detail: "PPR — 1 point per reception. QB TD = 6pts, RB/WR/TE TD = 6pts, K FG = 3pts", icon: "📊" },
-  { category: "League", title: "Draft", detail: "Snake draft format. Order randomized before draft. 90 seconds per pick.", icon: "📋" },
-  { category: "League", title: "Waiver Wire", detail: "FAAB bidding system. Each team gets $200 budget. Waivers process Tuesday mornings.", icon: "📝" },
-  { category: "League", title: "Trade Deadline", detail: "Week 11. All trades subject to a 24-hour league review period.", icon: "🤝" },
-  { category: "League", title: "Conduct", detail: "Trash talk is encouraged. Collusion or intentional tanking results in immediate removal.", icon: "⚖️" },
-  { category: "Playoffs", title: "Playoff Format", detail: "Top 6 teams advance. Weeks 15–17. Championship game in Week 17.", icon: "🏆" },
-  { category: "Playoffs", title: "Sacko", detail: "Team with the worst regular season record earns the Sacko. A badge of shame.", icon: "💩" },
+  { category: "League", title: "Scoring Format", detail: "Standard scoring with decimals. D/ST standard point structure. K decimal scoring incorporated in 2020.", icon: "📊" },
+  { category: "League", title: "Schedule", detail: "17 Week format. Regular season is 14 weeks. Schedule randomized each year prior to the season.", icon: "📅" },
+  { category: "League", title: "Platform", detail: "Sleeper.app — all rosters, waivers, trades, and scoring managed through Sleeper.", icon: "📱" },
+  { category: "League", title: "Draft", detail: "Goal is to hold the draft after the 3rd preseason game. Subject to change based on availability.", icon: "📋" },
+  { category: "Playoffs", title: "Playoff Format", detail: "6 teams qualify. 5 matchups over 3 weeks. Top 2 seeds receive a first-round bye. Highest seed always plays lowest seed.", icon: "🏆" },
+  { category: "Playoffs", title: "End of Season Sacko", detail: "Determined by worst overall record through 17 weeks. Sacko must complete the Wonderlic test before the following season's draft or face expulsion.", icon: "💩" },
+  { category: "Playoffs", title: "Weekly Sacko", detail: "Lowest points scored each week receives a -2 point deduction from their year-end Pick 'Em total.", icon: "📉" },
   { category: "Money", title: "Buy-In", detail: "$75 per team. Total pot: $900.", icon: "💵" },
   { category: "Money", title: "1st Place", detail: "$500", icon: "🥇" },
   { category: "Money", title: "2nd Place", detail: "$150", icon: "🥈" },
   { category: "Money", title: "3rd Place", detail: "$50", icon: "🥉" },
-  { category: "Money", title: "Most Points Scored", detail: "$50 — Team with highest total points scored across the regular season", icon: "🔥" },
-  { category: "Money", title: "Weekly Incentives", detail: "$10 per week — One winner per week for Weeks 1–15. See Weekly Incentives tab for details.", icon: "🏅" },
+  { category: "Money", title: "Most Points Scored", detail: "$50 — Team with highest total points scored over 16 weeks.", icon: "🔥" },
+  { category: "Money", title: "Weekly Incentives", detail: "$10 per week × 15 weeks = $150. One winner per week. See Weekly Incentives tab for details.", icon: "🏅" },
+  { category: "Conduct", title: "Commissioner's Discretion", detail: "All matters outside explicit rules are settled by Commissioner's Discretion with the intent of setting a standard for the league. Members may file formal complaints — majority vote (7/12) constitutes a successful appeal.", icon: "⚖️" },
+  { category: "Conduct", title: "Lineup Enforcement", detail: "Full lineup required every week through Week 17, set before Thursday Night Football kickoff. Failure earns a Strike.", icon: "📌" },
+  { category: "Conduct", title: "Strike Rule (The F***ing Stu Amendment)", detail: "2 strikes within 1 season = expulsion. Each strike = -10 Pick 'Em points. First strike can be forgiven by submitting a themed write-up (limit 1 per season). Strikes reset each season.", icon: "⚡" },
+  { category: "Conduct", title: "Collusion (The Shamefoot Amendment)", detail: "Any collusion (financial transactions, intentional drops, unbalanced trades) = 1 strike + -10 Pick 'Em points.", icon: "🚫" },
+  { category: "Waivers & Trades", title: "Waiver Format", detail: "Acquisition Budget system. $100 per team for the season. Waiver deadline: Week 12.", icon: "🔄" },
+  { category: "Waivers & Trades", title: "Trades", detail: "1-day automatic processing window via Sleeper. Commissioner does not push trades manually. All trades subject to investigation. Season trade deadline: Week 12.", icon: "🤝" },
+  { category: "Waivers & Trades", title: "Tiebreakers", detail: "Weekly ties broken by bench points scored. Playoff seeding ties: head-to-head first; if split 1-1, highest season PF advances.", icon: "🎯" },
+  { category: "Pick 'Em", title: "Pick 'Em Format", detail: "Choose 6 matchup winners + Highest Score, Lowest Score, and Blowout Matchup each week through the playoffs. Most correct picks = first draft pick choice.", icon: "🎲" },
+  { category: "Pick 'Em", title: "Score Guesses", detail: "Players cannot select the same Highest/Lowest Score guess. First to submit (by timestamp) wins the point if tied. Sabotage = -10 point deduction.", icon: "🔢" },
+  { category: "Pick 'Em", title: "Pick 'Em Bonuses", detail: "Perfect Attendance (every pick all season): +10 pts. Weekly Perfection (11/11 in a week): +15 pts. League Contributor (write-up/video/meme): +5 pts (max 2/season = +10 pts max).", icon: "⭐" },
+  { category: "Pick 'Em", title: "Pick 'Em Deadline", detail: "All picks must be submitted before scheduled kickoff of Thursday Night Football (or first game of the week if no TNF).", icon: "⏰" },
 ];
+
 function Rules() {
-  const categories = ["League", "Playoffs", "Money"];
-  const categoryIcons = { League: "📋", Playoffs: "🏆", Money: "💰" };
-  const categoryColors = { League: T.teal, Playoffs: T.gold, Money: "#2e7d32" };
-  const categoryGlows = { League: T.tealGlow, Playoffs: T.goldLight, Money: "#66bb6a" };
+  const categories = ["League", "Playoffs", "Money", "Conduct", "Waivers & Trades", "Pick 'Em", "📄 Full Document"];
+  const categoryIcons = { "League": "📋", "Playoffs": "🏆", "Money": "💰", "Conduct": "⚖️", "Waivers & Trades": "🔄", "Pick 'Em": "🎲", "📄 Full Document": "📄" };
+  const categoryColors = { "League": T.teal, "Playoffs": T.gold, "Money": "#2e7d32", "Conduct": "#7b1fa2", "Waivers & Trades": "#1565c0", "Pick 'Em": "#c62828", "📄 Full Document": T.grayMid };
+  const categoryGlows = { "League": T.tealGlow, "Playoffs": T.goldLight, "Money": "#66bb6a", "Conduct": "#ce93d8", "Waivers & Trades": "#64b5f6", "Pick 'Em": "#ef9a9a", "📄 Full Document": T.grayText };
+  const [activeCategory, setActiveCategory] = useState("League");
 
   return (
     <div style={S.section}>
-      <div style={S.sectionTitle}>📋 League Rules & Settings</div>
-      {categories.map(cat => {
-        const catRules = RULES.filter(r => r.category === cat);
-        const color = categoryColors[cat];
-        const glow = categoryGlows[cat];
-        return (
-          <div key={cat} style={{ marginBottom: 32 }}>
-            {/* Category header */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: 10,
-              marginBottom: 14, paddingBottom: 8,
-              borderBottom: `2px solid ${color}`,
-            }}>
-              <span style={{ fontSize: 18 }}>{categoryIcons[cat]}</span>
-              <span style={{ fontWeight: 900, fontSize: 16, color: glow, letterSpacing: 2, textTransform: "uppercase" }}>
-                {cat}
-              </span>
-            </div>
+      <div style={S.sectionTitle}>📋 Official League Rules</div>
 
-            {cat === "Money" ? (
-              /* Money section — special layout with prize table */
-              <div style={S.card}>
-                {catRules.map((r, i) => (
-                  <div key={r.title} style={{
-                    display: "flex", alignItems: "center", gap: 16,
-                    padding: "14px 20px",
-                    borderBottom: i < catRules.length - 1 ? `1px solid ${T.grayMid}` : "none",
-                    background: i % 2 === 0 ? "#181818" : "transparent",
-                  }}>
-                    <span style={{ fontSize: 22, flexShrink: 0 }}>{r.icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, color: T.white, fontSize: 14 }}>{r.title}</div>
-                      <div style={{ color: T.grayText, fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>{r.detail}</div>
-                    </div>
-                    {["1st Place","2nd Place","3rd Place","Most Points Scored","Weekly Incentives","Buy-In"].includes(r.title) && (
-                      <div style={{
-                        fontWeight: 900, fontSize: 18,
-                        color: r.title === "1st Place" ? T.goldLight :
-                               r.title === "2nd Place" ? "#A8A9AD" :
-                               r.title === "3rd Place" ? "#CD7F32" :
-                               r.title === "Buy-In" ? "#ff6666" : T.tealGlow,
-                        minWidth: 60, textAlign: "right",
-                      }}>
-                        {r.detail.startsWith("$") ? r.detail.split(" ")[0] : ""}
-                      </div>
-                    )}
+      {/* Category tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 24, flexWrap: "wrap" }}>
+        {categories.map(cat => (
+          <button key={cat}
+            style={{
+              ...S.btn(activeCategory === cat),
+              borderColor: activeCategory === cat ? categoryGlows[cat] : T.grayMid,
+              color: activeCategory === cat ? categoryGlows[cat] : T.grayText,
+              background: activeCategory === cat ? `${categoryColors[cat]}22` : "transparent",
+            }}
+            onClick={() => setActiveCategory(cat)}>
+            {categoryIcons[cat]} {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Rules for selected category */}
+      {(() => {
+        const catRules = RULES.filter(r => r.category === activeCategory);
+        const color = categoryColors[activeCategory];
+        const glow = categoryGlows[activeCategory];
+
+        if (activeCategory === "Money") {
+          return (
+            <div style={S.card}>
+              {catRules.map((r, i) => (
+                <div key={r.title} style={{
+                  display: "flex", alignItems: "center", gap: 16,
+                  padding: "14px 20px",
+                  borderBottom: i < catRules.length - 1 ? `1px solid ${T.grayMid}` : "none",
+                  background: i % 2 === 0 ? "#181818" : "transparent",
+                }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>{r.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, color: T.white, fontSize: 14 }}>{r.title}</div>
+                    <div style={{ color: T.grayText, fontSize: 13, marginTop: 2, lineHeight: 1.4 }}>{r.detail}</div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              /* League & Playoffs — card grid */
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
-                {catRules.map(r => (
-                  <div key={r.title} style={{
-                    ...S.card, padding: "16px 20px",
-                    borderLeft: `4px solid ${color}`,
-                    display: "flex", gap: 14, alignItems: "flex-start",
-                  }}>
-                    <span style={{ fontSize: 24, flexShrink: 0, marginTop: 2 }}>{r.icon}</span>
-                    <div>
-                      <div style={{ fontWeight: 700, color: glow, fontSize: 14, marginBottom: 5 }}>{r.title}</div>
-                      <div style={{ color: T.grayText, fontSize: 13, lineHeight: 1.5 }}>{r.detail}</div>
+                  {["1st Place","2nd Place","3rd Place","Most Points Scored","Weekly Incentives","Buy-In"].includes(r.title) && (
+                    <div style={{
+                      fontWeight: 900, fontSize: 20,
+                      color: r.title === "1st Place" ? T.goldLight : r.title === "2nd Place" ? "#A8A9AD" : r.title === "3rd Place" ? "#CD7F32" : r.title === "Buy-In" ? "#ff6666" : T.tealGlow,
+                    }}>
+                      {r.detail.startsWith("$") ? r.detail.split(" ")[0] : ""}
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {catRules.map(r => (
+              <div key={r.title} style={{
+                ...S.card, padding: "16px 20px",
+                borderLeft: `4px solid ${color}`,
+                display: "flex", gap: 14, alignItems: "flex-start",
+              }}>
+                <span style={{ fontSize: 26, flexShrink: 0, marginTop: 2 }}>{r.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, color: glow, fontSize: 15, marginBottom: 6 }}>{r.title}</div>
+                  <div style={{ color: T.grayText, fontSize: 13, lineHeight: 1.6 }}>{r.detail}</div>
+                </div>
               </div>
-            )}
+            ))}
           </div>
         );
-      })}
+      })()}
+
+      {/* Official document note - hidden on Full Document tab */}
+      {activeCategory !== "📄 Full Document" && (
+        <div style={{ marginTop: 24, background: `${T.teal}11`, border: `1px solid ${T.teal}33`, borderRadius: 8, padding: "12px 18px", fontSize: 12, color: T.grayText, lineHeight: 1.6 }}>
+          📄 These rules reflect the JaguarBros Official League Rules document. All matters not explicitly covered are subject to Commissioner's Discretion (Article I).
+        </div>
+      )}
+
+      {/* Full Document tab */}
+      {activeCategory === "📄 Full Document" && (
+        <div style={{ ...S.card, padding: "28px 32px" }}>
+          <div style={{ fontWeight: 900, fontSize: 20, color: T.tealGlow, textAlign: "center", marginBottom: 28, letterSpacing: 2, textTransform: "uppercase" }}>
+            JaguarBros Official League Rules
+          </div>
+          {[
+            { n: "I", title: "Commissioner's Discretion", body: "All matters outside explicit guidelines are settled by Commissioner's Discretion with the intent of setting a standard for the league. Members may file formal complaints — majority vote (7/12) = successful appeal." },
+            { n: "II", title: "League Format / Schedule", body: "17-week format. Regular season: 14 weeks. Schedule randomized each year. Platform: Sleeper.app. Standard scoring with decimals. K decimal scoring incorporated in 2020." },
+            { n: "III", title: "Playoff Format", body: "6 teams qualify. 5 matchups over 3 weeks. Top 2 seeds receive first-round bye. Bracket adjusted so highest seed always plays lowest seed." },
+            { n: "IV", title: "Payouts / Buy-In", body: "$75/team = $900 total pot. 1st: $500 · 2nd: $150 · 3rd: $50 · Most Points (16 wks): $50 · Weekly Incentives (15 × $10): $150." },
+            { n: "V", title: "Weekly Incentives", body: "See the Weekly Incentives tab for all 15 weekly categories and current season winners." },
+            { n: "VI", title: "Lineup Enforcement", body: "Full lineup required every week through Week 17, set before TNF kickoff. For Q/D players: notify @channel on Slack. Valid excuses considered if filed before the affected matchup." },
+            { n: "VII", title: "Strike Rule", body: "2 strikes in 1 season = expulsion. Each strike = -10 Pick 'Em points. Strike Forgiveness: First strike may be erased by submitting a themed write-up (limit 1/season, Commissioner's Discretion)." },
+            { n: "VIII", title: "Tiebreakers", body: "Weekly ties: decided by total bench points. Playoff seeding ties: head-to-head first. If split 1-1, highest season PF advances." },
+            { n: "IX", title: "Weekly Sacko", body: "Lowest scorer each week receives -2 points from year-end Pick 'Em total." },
+            { n: "X", title: "End of Season Sacko", body: "Worst overall record through all 17 weeks. Must complete the Wonderlic test before the following season's draft. Failure = expulsion." },
+            { n: "XI", title: "Waiver Format", body: "Acquisition Budget system. $100 per team for the season. Waiver deadline: Week 12." },
+            { n: "XII", title: "Trades", body: "Automatic 1-day processing via Sleeper. Commissioner does not push trades manually. All trades subject to investigation. Trade deadline: Week 12." },
+            { n: "XIII", title: "Draft Date", body: "Goal: after 3rd preseason game. Subject to change based on league availability." },
+            { n: "XIV", title: "Draft Order / Pick 'Em", body: "Picks due before TNF kickoff. Choose 6 matchup winners + Highest Score, Lowest Score, and Blowout each week through playoffs. Most correct picks = first draft choice. Players cannot select same Highest/Lowest score — first timestamp wins. Sabotage = -10 points." },
+            { n: "XV", title: "Pick 'Em Bonus Opportunities", body: "Perfect Attendance (all picks all season): +10 pts. Weekly Perfection (11/11): +15 pts. League Contributor (write-up/video/meme): +5 pts, max 2/season." },
+            { n: "XVI", title: "The Shamefoot Amendment", body: "Collusion = 1 strike + -10 Pick 'Em points. Includes financial transactions for advantages, intentional drops, or unbalanced trades." },
+            { n: "XVII", title: "The F***ing Stu Amendment", body: "2 strikes in 1 season = expulsion. Patterns of nonparticipation across seasons may result in penalties larger than the standard -10." },
+          ].map((a, i, arr) => (
+            <div key={a.n} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: i < arr.length - 1 ? `1px solid ${T.grayMid}` : "none" }}>
+              <div style={{ fontWeight: 700, color: T.tealGlow, fontSize: 14, marginBottom: 6 }}>Article {a.n} — {a.title}</div>
+              <div style={{ color: T.grayText, lineHeight: 1.7, fontSize: 13 }}>{a.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ─── SETUP GUIDE TAB ─────────────────────────────────────────────────────────
 function SetupGuide() {
@@ -2773,7 +3057,7 @@ function SetupGuide() {
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const TABS = ["Standings", "Weekly Picks", "Pick Leaderboard", "Weekly Incentives", "Scoreboard", "Teams", "League History", "Rules"];
+const TABS = ["Standings", "Weekly Picks", "Pick Leaderboard", "Weekly Incentives", "Scoreboard", "Teams", "League History", "Archive", "Rules"];
 
 export default function App() {
   const [tab, setTab] = useState("Standings");
@@ -2855,6 +3139,7 @@ export default function App() {
       {tab === "Scoreboard" && <Scoreboard leagueData={leagueData} />}
       {tab === "Teams" && <Teams leagueData={leagueData} />}
       {tab === "League History" && <ErrorBoundary key="history"><LeagueHistory leagueData={leagueData} /></ErrorBoundary>}
+      {tab === "Archive" && <ErrorBoundary key="archive"><Archive leagueData={leagueData} /></ErrorBoundary>}
       {tab === "Weekly Picks" && <WeeklyPicks leagueData={leagueData} />}
       {tab === "Pick Leaderboard" && <PickLeaderboard leagueData={leagueData} />}
       {tab === "Weekly Incentives" && <WeeklyIncentives leagueData={leagueData} />}
