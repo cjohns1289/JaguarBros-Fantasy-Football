@@ -168,7 +168,19 @@ async function getAllHistoricalLeagues(currentLeagueInfo, startYear) {
       let winnersBracket = null, losersBracket = null;
       try { winnersBracket = await sf(`/league/${info.league_id}/winners_bracket`); } catch {}
       try { losersBracket = await sf(`/league/${info.league_id}/losers_bracket`); } catch {}
-      seasons.push({ info, rosters, users, winnersBracket, losersBracket, year });
+      // Fetch playoff matchups (weeks 15-17) for full season stats
+      let playoffMatchups = [];
+      if (info.status === "complete") {
+        try {
+          const [wk15, wk16, wk17] = await Promise.all([
+            sf(`/league/${info.league_id}/matchups/15`).catch(() => []),
+            sf(`/league/${info.league_id}/matchups/16`).catch(() => []),
+            sf(`/league/${info.league_id}/matchups/17`).catch(() => []),
+          ]);
+          playoffMatchups = [...(wk15||[]), ...(wk16||[]), ...(wk17||[])];
+        } catch {}
+      }
+      seasons.push({ info, rosters, users, winnersBracket, losersBracket, playoffMatchups, year });
     } catch {}
     if (!info.previous_league_id || info.previous_league_id === "0") break;
     try { info = await sf(`/league/${info.previous_league_id}`); }
@@ -530,6 +542,53 @@ function Loading({ msg = "Loading from Sleeper..." }) {
 }
 function ErrBox({ msg }) {
   return <div style={{ background: "#1a0000", border: "1px solid #660000", borderRadius: 8, padding: 16, margin: 16, color: "#ff6666", fontSize: 13 }}>⚠️ {msg}</div>;
+}
+
+function buildFullSeasonStandings(rosters, users, playoffMatchups) {
+  const userMap = {};
+  users.forEach(u => { userMap[u.user_id] = u; });
+
+  // Calculate playoff W/L/pts from matchup data
+  const playoffStats = {};
+  if (Array.isArray(playoffMatchups) && playoffMatchups.length > 0) {
+    // Group by matchup_id
+    const byMatchup = {};
+    playoffMatchups.forEach(m => {
+      if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
+      byMatchup[m.matchup_id].push(m);
+    });
+    Object.values(byMatchup).forEach(pair => {
+      if (pair.length !== 2) return;
+      const [a, b] = pair;
+      const aId = a.roster_id, bId = b.roster_id;
+      const aPts = a.points || 0, bPts = b.points || 0;
+      if (!playoffStats[aId]) playoffStats[aId] = { w: 0, l: 0, pts: 0 };
+      if (!playoffStats[bId]) playoffStats[bId] = { w: 0, l: 0, pts: 0 };
+      playoffStats[aId].pts += aPts;
+      playoffStats[bId].pts += bPts;
+      if (aPts > bPts) { playoffStats[aId].w++; playoffStats[bId].l++; }
+      else if (bPts > aPts) { playoffStats[bId].w++; playoffStats[aId].l++; }
+    });
+  }
+
+  return rosters.map(r => {
+    const user = userMap[r.owner_id] || {};
+    const regW = r.settings?.wins || 0;
+    const regL = r.settings?.losses || 0;
+    const regPts = (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100;
+    const po = playoffStats[r.roster_id] || { w: 0, l: 0, pts: 0 };
+    return {
+      rosterId: r.roster_id,
+      owner: user.display_name || "Unknown",
+      team: user.metadata?.team_name || user.display_name || `Team ${r.roster_id}`,
+      wins: regW + po.w,
+      losses: regL + po.l,
+      regWins: regW, regLosses: regL,
+      playoffWins: po.w, playoffLosses: po.l,
+      pts: regPts + po.pts,
+      regPts, playoffPts: po.pts,
+    };
+  }).sort((a, b) => b.wins - a.wins || b.pts - a.pts);
 }
 
 function buildStandingsFromData(rosters, users) {
@@ -2706,7 +2765,7 @@ function Archive({ leagueData }) {
 
   const selectedSeason = seasons.find(s => s.year === selectedYear);
   const standings = selectedSeason
-    ? buildStandingsFromData(selectedSeason.rosters, selectedSeason.users)
+    ? buildFullSeasonStandings(selectedSeason.rosters, selectedSeason.users, selectedSeason.playoffMatchups || [])
     : [];
   const champion = selectedSeason
     ? findChampion(selectedSeason.winnersBracket, selectedSeason.rosters, selectedSeason.users, standings)
@@ -2749,6 +2808,14 @@ function Archive({ leagueData }) {
                 <>
                   <div style={{ fontWeight: 900, fontSize: 16, color: T.white }}>{champion.team}</div>
                   <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>{champion.owner}</div>
+                  {(() => {
+                    const champStanding = standings.find(s => s.owner === champion.owner);
+                    return champStanding ? (
+                      <div style={{ fontSize: 12, color: T.goldLight, fontWeight: 700, marginTop: 4 }}>
+                        {champStanding.wins}–{champStanding.losses} · {champStanding.pts.toFixed(1)} pts
+                      </div>
+                    ) : null;
+                  })()}
                 </>
               ) : (
                 <div style={{ color: T.grayText, fontSize: 13 }}>
@@ -2850,9 +2917,18 @@ function Archive({ leagueData }) {
                         </span>
                       </td>
                       <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
-                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
-                      <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
-                      <td style={S.tdR}>{t.pts.toFixed(2)}</td>
+                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>
+                        {t.wins}
+                        {t.playoffWins > 0 && <span style={{ fontSize: 10, color: T.gold, display: "block" }}>({t.regWins}+{t.playoffWins}PO)</span>}
+                      </td>
+                      <td style={{ ...S.tdR, color: T.grayText }}>
+                        {t.losses}
+                        {t.playoffLosses > 0 && <span style={{ fontSize: 10, color: T.grayText, display: "block" }}>({t.regLosses}+{t.playoffLosses}PO)</span>}
+                      </td>
+                      <td style={S.tdR}>
+                        {t.pts.toFixed(2)}
+                        {t.playoffPts > 0 && <span style={{ fontSize: 10, color: T.grayText, display: "block" }}>({t.regPts.toFixed(0)}+{t.playoffPts.toFixed(0)}PO)</span>}
+                      </td>
                       <td style={S.tdR}>
                         {isChamp && <span style={S.badge("gold")}>🏆 Champion</span>}
                         {isSacko && !isChamp && <span style={S.badge("red")}>💩 Sacko</span>}
