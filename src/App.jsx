@@ -169,15 +169,17 @@ async function getAllHistoricalLeagues(currentLeagueInfo, startYear) {
       try { winnersBracket = await sf(`/league/${info.league_id}/winners_bracket`); } catch {}
       try { losersBracket = await sf(`/league/${info.league_id}/losers_bracket`); } catch {}
       // Fetch playoff matchups (weeks 15-17) for full season stats
+      // This includes BOTH winners and losers bracket teams
       let playoffMatchups = [];
       if (info.status === "complete") {
         try {
-          const [wk15, wk16, wk17] = await Promise.all([
-            sf(`/league/${info.league_id}/matchups/15`).catch(() => []),
-            sf(`/league/${info.league_id}/matchups/16`).catch(() => []),
-            sf(`/league/${info.league_id}/matchups/17`).catch(() => []),
-          ]);
-          playoffMatchups = [...(wk15||[]), ...(wk16||[]), ...(wk17||[])];
+          const totalWeeks = info.settings?.playoff_week_start
+            ? [info.settings.playoff_week_start, info.settings.playoff_week_start+1, info.settings.playoff_week_start+2]
+            : [15, 16, 17];
+          const weekData = await Promise.all(
+            totalWeeks.map(w => sf(`/league/${info.league_id}/matchups/${w}`).catch(() => []))
+          );
+          playoffMatchups = weekData.flat().filter(m => m && m.roster_id);
         } catch {}
       }
       seasons.push({ info, rosters, users, winnersBracket, losersBracket, playoffMatchups, year });
@@ -554,12 +556,13 @@ function buildFullSeasonStandings(rosters, users, playoffMatchups) {
     // Group by matchup_id
     const byMatchup = {};
     playoffMatchups.forEach(m => {
+      if (m.matchup_id == null) return; // skip byes with no matchup
       if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
       byMatchup[m.matchup_id].push(m);
     });
-    Object.values(byMatchup).forEach(pair => {
-      if (pair.length !== 2) return;
-      const [a, b] = pair;
+    Object.values(byMatchup).forEach(entries => {
+      if (entries.length !== 2) return; // only count real head-to-head matchups
+      const [a, b] = entries;
       const aId = a.roster_id, bId = b.roster_id;
       const aPts = a.points || 0, bPts = b.points || 0;
       if (!playoffStats[aId]) playoffStats[aId] = { w: 0, l: 0, pts: 0 };
@@ -2895,8 +2898,10 @@ function Archive({ leagueData }) {
                   <th style={S.th}>Rank</th>
                   <th style={S.th}>Team</th>
                   <th style={S.th}>Owner</th>
-                  <th style={S.thR}>W</th>
-                  <th style={S.thR}>L</th>
+                  <th style={S.thR}>Reg W</th>
+                  <th style={S.thR}>Reg L</th>
+                  <th style={S.thR}>Final W</th>
+                  <th style={S.thR}>Final L</th>
                   <th style={S.thR}>PTS</th>
                   <th style={S.thR}>Result</th>
                 </tr>
@@ -2917,18 +2922,11 @@ function Archive({ leagueData }) {
                         </span>
                       </td>
                       <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
-                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>
-                        {t.wins}
-                        {t.playoffWins > 0 && <span style={{ fontSize: 10, color: T.gold, display: "block" }}>({t.regWins}+{t.playoffWins}PO)</span>}
-                      </td>
-                      <td style={{ ...S.tdR, color: T.grayText }}>
-                        {t.losses}
-                        {t.playoffLosses > 0 && <span style={{ fontSize: 10, color: T.grayText, display: "block" }}>({t.regLosses}+{t.playoffLosses}PO)</span>}
-                      </td>
-                      <td style={S.tdR}>
-                        {t.pts.toFixed(2)}
-                        {t.playoffPts > 0 && <span style={{ fontSize: 10, color: T.grayText, display: "block" }}>({t.regPts.toFixed(0)}+{t.playoffPts.toFixed(0)}PO)</span>}
-                      </td>
+                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.regWins}</td>
+                      <td style={{ ...S.tdR, color: T.grayText }}>{t.regLosses}</td>
+                      <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
+                      <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
+                      <td style={S.tdR}>{t.pts.toFixed(2)}</td>
                       <td style={S.tdR}>
                         {isChamp && <span style={S.badge("gold")}>🏆 Champion</span>}
                         {isSacko && !isChamp && <span style={S.badge("red")}>💩 Sacko</span>}
