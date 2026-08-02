@@ -808,7 +808,7 @@ function JaguarsTile() {
 
   const container = {
     background: "linear-gradient(135deg,#001f26 0%,#003840 100%)",
-    border: `1px solid ${T.teal}`, borderRadius: 10, padding: "14px 20px",
+    border: `1px solid ${T.teal}`, borderRadius: 10, padding: "clamp(10px, 3vw, 20px)",
     boxShadow: `0 0 20px ${T.teal}22`,
   };
 
@@ -859,46 +859,61 @@ function JaguarsTile() {
         </span>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-        {/* JAX row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", justifyContent: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "clamp(4px, 2vw, 16px)" }}>
+        {/* JAX side */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "clamp(6px, 2vw, 12px)" }}>
           <img
             src={espnLogoUrl("JAX")}
             alt="JAX"
-            style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.teal}`, flexShrink: 0 }}
+            style={{ width: "clamp(32px, 8vw, 48px)", height: "clamp(32px, 8vw, 48px)", borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.teal}`, flexShrink: 0 }}
             onError={e => { e.target.style.display = "none"; }}
           />
-          <div style={{ textAlign: "left", minWidth: 0 }}>
-            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: 14, lineHeight: 1.1 }}>Jacksonville Jaguars</div>
-            <div style={{ fontSize: 11, color: T.goldLight, fontWeight: 700, marginTop: 2 }}>{recStr}</div>
+          <div style={{ minWidth: 0, overflow: "hidden" }}>
+            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: "clamp(11px, 3vw, 15px)", lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Jacksonville</div>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: "clamp(11px, 3vw, 15px)", lineHeight: 1.15, whiteSpace: "nowrap" }}>Jaguars</div>
+            <div style={{ fontSize: "clamp(9px, 2.2vw, 11px)", color: T.goldLight, fontWeight: 700, marginTop: 2 }}>{recStr}</div>
           </div>
-          {isPast && jScore != null && (
-            <span style={{ fontSize: 20, fontWeight: 900, color: jaxWon ? T.goldLight : T.grayText, marginLeft: "auto" }}>{jScore}</span>
+        </div>
+
+        {/* Center — VS/score */}
+        <div style={{ textAlign: "center", flexShrink: 0, minWidth: "clamp(50px, 15vw, 90px)" }}>
+          {isPast && jScore != null ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "clamp(3px, 1vw, 6px)" }}>
+                <span style={{ fontSize: "clamp(14px, 4vw, 22px)", fontWeight: 900, color: jaxWon ? T.goldLight : T.grayText }}>{jScore}</span>
+                <span style={{ color: T.grayText, fontSize: "clamp(10px, 2.5vw, 14px)" }}>–</span>
+                <span style={{ fontSize: "clamp(14px, 4vw, 22px)", fontWeight: 900, color: jaxLost ? T.goldLight : T.grayText }}>{oScore}</span>
+              </div>
+              <div style={{ fontSize: "clamp(8px, 2vw, 10px)", fontWeight: 700, letterSpacing: 1, color: jaxWon ? T.tealGlow : jaxLost ? "#ff6666" : T.grayText }}>
+                {jaxWon ? "WIN" : jaxLost ? "LOSS" : "TIE"}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontWeight: 900, color: T.white, fontSize: "clamp(14px, 4vw, 20px)", lineHeight: 1 }}>
+              {isHome ? "VS" : "@"}
+            </div>
           )}
         </div>
 
-        {/* VS divider */}
-        <div style={{ fontWeight: 900, color: T.grayText, fontSize: 12, letterSpacing: 3 }}>
-          {isPast && jScore != null ? "FINAL" : (isHome ? "VS" : "@")}
-        </div>
-
-        {/* Opponent row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", justifyContent: "center" }}>
-          <img
-            src={espnLogoUrl(opp)}
-            alt={opp}
-            style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.grayMid}`, flexShrink: 0 }}
-            onError={e => { e.target.style.display = "none"; }}
-          />
-          <div style={{ textAlign: "left", minWidth: 0 }}>
-            <div style={{ fontWeight: 900, color: T.white, fontSize: 14, lineHeight: 1.1 }}>{oppName}</div>
-            <div style={{ fontSize: 11, color: T.grayText, fontWeight: 700, marginTop: 2 }}>
+        {/* Opponent side */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "clamp(6px, 2vw, 12px)", justifyContent: "flex-end" }}>
+          <div style={{ textAlign: "right", minWidth: 0, overflow: "hidden" }}>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: "clamp(11px, 3vw, 15px)", lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {oppName.split(" ").slice(0, -1).join(" ")}
+            </div>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: "clamp(11px, 3vw, 15px)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+              {oppName.split(" ").slice(-1)[0]}
+            </div>
+            <div style={{ fontSize: "clamp(9px, 2.2vw, 11px)", color: T.grayText, fontWeight: 700, marginTop: 2 }}>
               {oppRecord ? `${oppRecord.w}-${oppRecord.l}${oppRecord.t > 0 ? `-${oppRecord.t}` : ""}` : "—"}
             </div>
           </div>
-          {isPast && jScore != null && (
-            <span style={{ fontSize: 20, fontWeight: 900, color: jaxLost ? T.goldLight : T.grayText, marginLeft: "auto" }}>{oScore}</span>
-          )}
+          <img
+            src={espnLogoUrl(opp)}
+            alt={opp}
+            style={{ width: "clamp(32px, 8vw, 48px)", height: "clamp(32px, 8vw, 48px)", borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.grayMid}`, flexShrink: 0 }}
+            onError={e => { e.target.style.display = "none"; }}
+          />
         </div>
       </div>
 
