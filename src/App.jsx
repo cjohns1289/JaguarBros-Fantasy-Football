@@ -859,63 +859,72 @@ function JaguarsTile() {
         </span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-start" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        {/* JAX side */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 130px" }}>
           <img
             src={espnLogoUrl("JAX")}
             alt="JAX"
-            style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.teal}`, flexShrink: 0 }}
+            style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.teal}`, flexShrink: 0 }}
             onError={e => { e.target.style.display = "none"; }}
           />
-          <div>
-            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: 15, lineHeight: 1.1 }}>Jacksonville</div>
-            <div style={{ fontWeight: 900, color: T.white, fontSize: 15, lineHeight: 1.1 }}>Jaguars</div>
-            <div style={{ fontSize: 11, color: T.goldLight, fontWeight: 700, marginTop: 2 }}>{recStr}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 900, color: T.tealGlow, fontSize: 13, lineHeight: 1.1 }}>Jacksonville</div>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: 13, lineHeight: 1.1 }}>Jaguars</div>
+            <div style={{ fontSize: 10, color: T.goldLight, fontWeight: 700, marginTop: 2 }}>{recStr}</div>
           </div>
         </div>
 
-        <div style={{ textAlign: "center", flexShrink: 0, minWidth: 80 }}>
+        {/* Center — VS/score */}
+        <div style={{ textAlign: "center", flexShrink: 0, padding: "0 4px" }}>
           {isPast && jScore != null ? (
             <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <span style={{ fontSize: 22, fontWeight: 900, color: jaxWon ? T.goldLight : T.grayText }}>{jScore}</span>
-                <span style={{ color: T.grayText }}>–</span>
-                <span style={{ fontSize: 22, fontWeight: 900, color: jaxLost ? T.goldLight : T.grayText }}>{oScore}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <span style={{ fontSize: 18, fontWeight: 900, color: jaxWon ? T.goldLight : T.grayText }}>{jScore}</span>
+                <span style={{ color: T.grayText, fontSize: 12 }}>–</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: jaxLost ? T.goldLight : T.grayText }}>{oScore}</span>
               </div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: jaxWon ? T.tealGlow : jaxLost ? "#ff6666" : T.grayText }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1, color: jaxWon ? T.tealGlow : jaxLost ? "#ff6666" : T.grayText }}>
                 {jaxWon ? "WIN" : jaxLost ? "LOSS" : "TIE"}
               </div>
             </>
           ) : (
             <>
-              <div style={{ fontWeight: 900, color: T.white, fontSize: 20, lineHeight: 1 }}>
+              <div style={{ fontWeight: 900, color: T.white, fontSize: 16, lineHeight: 1 }}>
                 {isHome ? "VS" : "@"}
               </div>
-              <div style={{ fontSize: 10, color: T.grayText, marginTop: 4, letterSpacing: 0.5 }}>{timeStr}</div>
             </>
           )}
         </div>
 
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontWeight: 900, color: T.white, fontSize: 15, lineHeight: 1.1 }}>
+        {/* Opponent side */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 130px", justifyContent: "flex-end" }}>
+          <div style={{ textAlign: "right", minWidth: 0 }}>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: 13, lineHeight: 1.1 }}>
               {oppName.split(" ").slice(0, -1).join(" ")}
             </div>
-            <div style={{ fontWeight: 900, color: T.white, fontSize: 15, lineHeight: 1.1 }}>
+            <div style={{ fontWeight: 900, color: T.white, fontSize: 13, lineHeight: 1.1 }}>
               {oppName.split(" ").slice(-1)[0]}
             </div>
-            <div style={{ fontSize: 11, color: T.grayText, fontWeight: 700, marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: T.grayText, fontWeight: 700, marginTop: 2 }}>
               {oppRecord ? `${oppRecord.w}-${oppRecord.l}${oppRecord.t > 0 ? `-${oppRecord.t}` : ""}` : "—"}
             </div>
           </div>
           <img
             src={espnLogoUrl(opp)}
             alt={opp}
-            style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.grayMid}`, flexShrink: 0 }}
+            style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.grayMid}`, flexShrink: 0 }}
             onError={e => { e.target.style.display = "none"; }}
           />
         </div>
       </div>
+
+      {/* Game time — full width below matchup */}
+      {!isPast && (
+        <div style={{ textAlign: "center", marginTop: 10, fontSize: 11, color: T.grayText, letterSpacing: 0.5 }}>
+          {timeStr}
+        </div>
+      )}
     </div>
   );
 }
