@@ -446,11 +446,32 @@ const S = {
     borderBottom: `2px solid ${T.teal}`, padding: "0 12px",
     display: "flex", alignItems: "center", justifyContent: "space-between",
     position: "sticky", top: 0, zIndex: 100,
-    boxShadow: `0 2px 20px ${T.teal}44`, overflow: "hidden",
+    boxShadow: `0 2px 20px ${T.teal}44`,
   },
   navLogo: { display: "flex", alignItems: "center", gap: 10, padding: "12px 0" },
   navLogoText: { fontSize: 14, fontWeight: 900, color: T.white, letterSpacing: 1, lineHeight: 1.1 },
   navLogoSub: { color: T.tealGlow, fontSize: 10, letterSpacing: 3, textTransform: "uppercase" },
+  navTabs: { display: "flex", alignItems: "center", gap: 2, overflowX: "auto", scrollbarWidth: "none", flexShrink: 1 },
+  hamburgerBtn: {
+    background: "transparent", border: "none", color: T.white, cursor: "pointer",
+    padding: 8, display: "flex", flexDirection: "column", gap: 4, flexShrink: 0,
+  },
+  hamburgerLine: { width: 22, height: 2, background: T.tealGlow, borderRadius: 2 },
+  mobileMenu: {
+    position: "fixed", top: 0, right: 0, bottom: 0, width: "min(280px, 80vw)",
+    background: "#0a0a0a", borderLeft: `2px solid ${T.teal}`, zIndex: 200,
+    padding: "20px 0", overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.6)",
+  },
+  mobileMenuOverlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 199,
+  },
+  mobileMenuBtn: (active) => ({
+    display: "block", width: "100%", textAlign: "left", padding: "14px 24px",
+    background: active ? `${T.teal}22` : "transparent", border: "none",
+    borderLeft: `3px solid ${active ? T.tealGlow : "transparent"}`,
+    color: active ? T.tealGlow : T.grayText, fontSize: 14, fontWeight: active ? 700 : 400,
+    letterSpacing: 1, textTransform: "uppercase", cursor: "pointer",
+  }),
   navBtn: (a) => ({
     padding: "14px 8px", background: "transparent", border: "none",
     borderBottom: `3px solid ${a ? T.tealGlow : "transparent"}`,
@@ -3174,6 +3195,14 @@ const TABS = ["Standings", "Weekly Picks", "Pick Leaderboard", "Weekly Incentive
 
 export default function App() {
   const [tab, setTab] = useState("Standings");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth < 900);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
   const [leagueData, setLeagueData] = useState(null);
   const [leagueError, setLeagueError] = useState(null);
   const [leagueLoading, setLeagueLoading] = useState(true);
@@ -3200,10 +3229,37 @@ export default function App() {
             <div style={S.navLogoSub}>Fantasy Football</div>
           </div>
         </div>
-        <div style={S.navTabs}>
-          {TABS.map(t => <button key={t} style={S.navBtn(tab === t)} onClick={() => setTab(t)}>{t}</button>)}
-        </div>
+
+        {isMobile ? (
+          <button style={S.hamburgerBtn} onClick={() => setMobileMenuOpen(true)} aria-label="Menu">
+            <span style={S.hamburgerLine} />
+            <span style={S.hamburgerLine} />
+            <span style={S.hamburgerLine} />
+          </button>
+        ) : (
+          <div style={S.navTabs}>
+            {TABS.map(t => <button key={t} style={S.navBtn(tab === t)} onClick={() => setTab(t)}>{t}</button>)}
+          </div>
+        )}
       </nav>
+
+      {/* Mobile slide-out menu */}
+      {isMobile && mobileMenuOpen && (
+        <>
+          <div style={S.mobileMenuOverlay} onClick={() => setMobileMenuOpen(false)} />
+          <div style={S.mobileMenu}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 20px 16px", borderBottom: `1px solid ${T.grayMid}`, marginBottom: 8 }}>
+              <span style={{ color: T.tealGlow, fontWeight: 900, fontSize: 14, letterSpacing: 2 }}>MENU</span>
+              <button onClick={() => setMobileMenuOpen(false)} style={{ background: "none", border: "none", color: T.grayText, fontSize: 24, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            {TABS.map(t => (
+              <button key={t} style={S.mobileMenuBtn(tab === t)} onClick={() => { setTab(t); setMobileMenuOpen(false); }}>
+                {t}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {tab === "Standings" && (
         <div style={S.hero}>
