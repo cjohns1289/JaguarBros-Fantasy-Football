@@ -554,14 +554,31 @@ function buildFullSeasonStandings(rosters, users, playoffMatchups) {
   const playoffStats = {};
   if (Array.isArray(playoffMatchups) && playoffMatchups.length > 0) {
     // Group by matchup_id
+    // Group all matchups including matchup_id:null (losers/consolation bracket)
+    // For null matchup_id: each entry is a solo team — add their points individually
+    // but don't count W/L (they have no opponent that week — bye or consolation format)
     const byMatchup = {};
+    const nullMatchups = [];
     playoffMatchups.forEach(m => {
-      if (m.matchup_id == null) return; // skip byes with no matchup
+      if (m.matchup_id == null) {
+        nullMatchups.push(m);
+        return;
+      }
       if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
       byMatchup[m.matchup_id].push(m);
     });
+
+    // Process paired matchups (real head-to-head) — add pts AND W/L
     Object.values(byMatchup).forEach(entries => {
-      if (entries.length !== 2) return; // only count real head-to-head matchups
+      if (entries.length !== 2) {
+        // Single entry in a matchup_id = bye week, add pts only
+        entries.forEach(m => {
+          const id = m.roster_id;
+          if (!playoffStats[id]) playoffStats[id] = { w: 0, l: 0, pts: 0 };
+          playoffStats[id].pts += m.points || 0;
+        });
+        return;
+      }
       const [a, b] = entries;
       const aId = a.roster_id, bId = b.roster_id;
       const aPts = a.points || 0, bPts = b.points || 0;
@@ -571,6 +588,14 @@ function buildFullSeasonStandings(rosters, users, playoffMatchups) {
       playoffStats[bId].pts += bPts;
       if (aPts > bPts) { playoffStats[aId].w++; playoffStats[bId].l++; }
       else if (bPts > aPts) { playoffStats[bId].w++; playoffStats[aId].l++; }
+      else { /* tie — rare but possible */ }
+    });
+
+    // Process null matchup_id entries — add pts only (consolation/bye)
+    nullMatchups.forEach(m => {
+      const id = m.roster_id;
+      if (!playoffStats[id]) playoffStats[id] = { w: 0, l: 0, pts: 0 };
+      playoffStats[id].pts += m.points || 0;
     });
   }
 
@@ -882,7 +907,7 @@ function Standings({ leagueData }) {
   const week = leagueInfo.settings?.leg || "?";
   return (
     <div style={S.section}>
-      <div style={S.sectionTitle}>🏆 Standings — {isOffseason() ? "Completed" : `Week ${week}`}</div>
+      <div style={S.sectionTitle}>🏆 Standings</div>
       <div style={S.card}>
         <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         <table style={{ ...S.table, minWidth: 380 }}>
@@ -898,9 +923,9 @@ function Standings({ leagueData }) {
               <tr key={t.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
                 <td style={{ ...S.td, width: 44 }}><span style={S.rankBadge(i)}>{i + 1}</span></td>
                 <td style={S.td}>
-                  <div style={{ fontWeight: 700, color: i < 6 ? T.tealGlow : T.white, fontSize: 13 }}>{t.team}</div>
+                  <div style={{ fontWeight: 700, color: T.tealGlow, fontSize: 13 }}>{t.team}</div>
                   <div style={{ fontSize: 11, color: T.grayText, marginTop: 1 }}>{t.owner}</div>
-                  {i < 6 && <span style={{ ...S.badge("teal"), marginTop: 3, display: "inline-block", fontSize: 9 }}>PLAYOFFS</span>}
+                  {i < 6 && !isOffseason() && <span style={{ ...S.badge("teal"), marginTop: 3, display: "inline-block", fontSize: 9 }}>PLAYOFFS</span>}
                 </td>
                 <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
                 <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
@@ -1894,6 +1919,7 @@ function LeagueHistory({ leagueData }) {
       });
     });
     allTimeLeaderboard = Object.entries(allTimeRecordsMap)
+      .filter(([owner]) => owner && owner !== "Unknown")
       .map(([owner, r]) => ({ owner, ...r, pct: r.wins / Math.max(r.wins + r.losses + r.ties, 1) }))
       .sort((a, b) => b.pct - a.pct || b.wins - a.wins);
   } catch(e) { console.error("[LeagueHistory] allTimeLeaderboard failed:", e.message); }
@@ -1902,7 +1928,10 @@ function LeagueHistory({ leagueData }) {
   let pointsLeaderboard = [], maxPts = 1, maxWins = 1;
   try {
     pointsLeaderboard = pointsData
-      ? Object.entries(pointsData).sort((a, b) => b[1] - a[1]).map(([owner, pts]) => ({ owner, pts }))
+      ? Object.entries(pointsData)
+          .filter(([owner]) => owner && owner !== "Unknown")
+          .sort((a, b) => b[1] - a[1])
+          .map(([owner, pts]) => ({ owner, pts }))
       : [];
     maxPts = pointsLeaderboard.length > 0 ? pointsLeaderboard[0].pts : 1;
     maxWins = allTimeLeaderboard.length > 0 ? allTimeLeaderboard[0].wins : 1;
@@ -1993,90 +2022,6 @@ function LeagueHistory({ leagueData }) {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* ── Year-by-Year Final Standings ── */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
-          Final Standings by Season
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-          {allSeasonSummaries.map(s => (
-            <button key={s.year} style={{ ...S.btn(selectedYear === s.year), position: "relative" }} onClick={() => setSelectedYear(s.year)}>
-              {s.year}
-              {s.source === "espn" && <span style={{ fontSize: 8, color: T.gold, marginLeft: 4 }}>ESPN</span>}
-              {s.status !== "complete" && s.source !== "espn" && <span style={{ fontSize: 8, color: T.tealGlow, marginLeft: 4 }}>LIVE</span>}
-            </button>
-          ))}
-        </div>
-
-        {selectedSeason && (
-          <div style={S.card}>
-            <div style={{ background: "linear-gradient(90deg,#001f26,#003840)", padding: "12px 18px", borderBottom: `2px solid ${T.teal}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontWeight: 900, color: T.tealGlow, letterSpacing: 2 }}>{selectedSeason.year} SEASON</span>
-                {selectedSeason.source === "espn" && <span style={{ ...S.badge("gold") }}>ESPN ERA</span>}
-                {selectedSeason.status !== "complete" && <span style={S.badge("teal")}>IN PROGRESS</span>}
-              </div>
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                {selectedSeason.champ && <span style={{ color: T.goldLight, fontSize: 12 }}>🏆 <strong>{selectedSeason.champ.owner}</strong></span>}
-                {selectedSeason.sacko && <span style={{ color: "#ff6666", fontSize: 12 }}>💩 <strong>{selectedSeason.sacko.owner}</strong></span>}
-                {!selectedSeason.sacko && <span style={{ color: T.grayText, fontSize: 12 }}>💩 Sacko: no record</span>}
-              </div>
-            </div>
-
-            {selectedSeason.source === "espn" ? (
-              <div style={{ padding: "24px 20px", textAlign: "center", color: T.grayText }}>
-                <div style={{ fontSize: 28, marginBottom: 10 }}>📺</div>
-                <div style={{ fontWeight: 700, color: T.white, marginBottom: 6 }}>ESPN Era — {selectedSeason.year}</div>
-                <div style={{ fontSize: 13, marginBottom: 16 }}>Full standings data unavailable for ESPN seasons. Only champion and Sacko records were carried over.</div>
-                <div style={{ display: "flex", justifyContent: "center", gap: 32 }}>
-                  {selectedSeason.champ && (
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 32 }}>🏆</div>
-                      <div style={{ fontWeight: 900, color: T.goldLight, fontSize: 16 }}>{selectedSeason.champ.owner}</div>
-                      <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1 }}>CHAMPION</div>
-                    </div>
-                  )}
-                  {selectedSeason.sacko && (
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 32 }}>💩</div>
-                      <div style={{ fontWeight: 900, color: "#ff6666", fontSize: 16 }}>{selectedSeason.sacko.owner}</div>
-                      <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1 }}>SACKO</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <table style={S.table}>
-                <thead><tr>
-                  <th style={S.th}>Place</th><th style={S.th}>Team</th><th style={S.th}>Owner</th>
-                  <th style={S.thR}>W</th><th style={S.thR}>L</th><th style={S.thR}>PTS</th><th style={S.thR}>Award</th>
-                </tr></thead>
-                <tbody>
-                  {selectedSeason.standings.map((t, i) => {
-                    const isChamp = selectedSeason.champ?.owner === t.owner && selectedSeason.status === "complete";
-                    const isSacko = i === selectedSeason.standings.length - 1 && selectedSeason.status === "complete";
-                    return (
-                      <tr key={t.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
-                        <td style={S.td}><span style={S.rankBadge(i)}>{i + 1}</span></td>
-                        <td style={S.td}><span style={{ fontWeight: 700, color: isChamp ? T.goldLight : isSacko ? "#ff6666" : T.white }}>{t.team}</span></td>
-                        <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
-                        <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
-                        <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
-                        <td style={S.tdR}>{t.pts.toFixed(2)}</td>
-                        <td style={S.tdR}>
-                          {isChamp && <span style={S.badge("gold")}>🏆 CHAMP</span>}
-                          {isSacko && <span style={S.badge("red")}>💩 SACKO</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ── All-Time Points Leaderboard ── */}
@@ -3230,3 +3175,88 @@ export default function App() {
     </div>
   );
 }
+      {/* ── Year-by-Year Final Standings ── */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
+          Final Standings by Season
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          {allSeasonSummaries.map(s => (
+            <button key={s.year} style={{ ...S.btn(selectedYear === s.year), position: "relative" }} onClick={() => setSelectedYear(s.year)}>
+              {s.year}
+              {s.source === "espn" && <span style={{ fontSize: 8, color: T.gold, marginLeft: 4 }}>ESPN</span>}
+              {s.status !== "complete" && s.source !== "espn" && <span style={{ fontSize: 8, color: T.tealGlow, marginLeft: 4 }}>LIVE</span>}
+            </button>
+          ))}
+        </div>
+
+        {selectedSeason && (
+          <div style={S.card}>
+            <div style={{ background: "linear-gradient(90deg,#001f26,#003840)", padding: "12px 18px", borderBottom: `2px solid ${T.teal}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontWeight: 900, color: T.tealGlow, letterSpacing: 2 }}>{selectedSeason.year} SEASON</span>
+                {selectedSeason.source === "espn" && <span style={{ ...S.badge("gold") }}>ESPN ERA</span>}
+                {selectedSeason.status !== "complete" && <span style={S.badge("teal")}>IN PROGRESS</span>}
+              </div>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {selectedSeason.champ && <span style={{ color: T.goldLight, fontSize: 12 }}>🏆 <strong>{selectedSeason.champ.owner}</strong></span>}
+                {selectedSeason.sacko && <span style={{ color: "#ff6666", fontSize: 12 }}>💩 <strong>{selectedSeason.sacko.owner}</strong></span>}
+                {!selectedSeason.sacko && <span style={{ color: T.grayText, fontSize: 12 }}>💩 Sacko: no record</span>}
+              </div>
+            </div>
+
+            {selectedSeason.source === "espn" ? (
+              <div style={{ padding: "24px 20px", textAlign: "center", color: T.grayText }}>
+                <div style={{ fontSize: 28, marginBottom: 10 }}>📺</div>
+                <div style={{ fontWeight: 700, color: T.white, marginBottom: 6 }}>ESPN Era — {selectedSeason.year}</div>
+                <div style={{ fontSize: 13, marginBottom: 16 }}>Full standings data unavailable for ESPN seasons. Only champion and Sacko records were carried over.</div>
+                <div style={{ display: "flex", justifyContent: "center", gap: 32 }}>
+                  {selectedSeason.champ && (
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 32 }}>🏆</div>
+                      <div style={{ fontWeight: 900, color: T.goldLight, fontSize: 16 }}>{selectedSeason.champ.owner}</div>
+                      <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1 }}>CHAMPION</div>
+                    </div>
+                  )}
+                  {selectedSeason.sacko && (
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 32 }}>💩</div>
+                      <div style={{ fontWeight: 900, color: "#ff6666", fontSize: 16 }}>{selectedSeason.sacko.owner}</div>
+                      <div style={{ fontSize: 11, color: T.grayText, letterSpacing: 1 }}>SACKO</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <table style={S.table}>
+                <thead><tr>
+                  <th style={S.th}>Place</th><th style={S.th}>Team</th><th style={S.th}>Owner</th>
+                  <th style={S.thR}>W</th><th style={S.thR}>L</th><th style={S.thR}>PTS</th><th style={S.thR}>Award</th>
+                </tr></thead>
+                <tbody>
+                  {selectedSeason.standings.map((t, i) => {
+                    const isChamp = selectedSeason.champ?.owner === t.owner && selectedSeason.status === "complete";
+                    const isSacko = i === selectedSeason.standings.length - 1 && selectedSeason.status === "complete";
+                    return (
+                      <tr key={t.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
+                        <td style={S.td}><span style={S.rankBadge(i)}>{i + 1}</span></td>
+                        <td style={S.td}><span style={{ fontWeight: 700, color: isChamp ? T.goldLight : isSacko ? "#ff6666" : T.white }}>{t.team}</span></td>
+                        <td style={{ ...S.td, color: T.grayText }}>{t.owner}</td>
+                        <td style={{ ...S.tdR, color: T.goldLight, fontWeight: 700 }}>{t.wins}</td>
+                        <td style={{ ...S.tdR, color: T.grayText }}>{t.losses}</td>
+                        <td style={S.tdR}>{t.pts.toFixed(2)}</td>
+                        <td style={S.tdR}>
+                          {isChamp && <span style={S.badge("gold")}>🏆 CHAMP</span>}
+                          {isSacko && <span style={S.badge("red")}>💩 SACKO</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+
