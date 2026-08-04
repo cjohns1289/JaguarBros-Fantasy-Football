@@ -1970,7 +1970,7 @@ function LeagueHistory({ leagueData }) {
       <div style={S.sectionTitle}>📜 League History — {ESPN_START_YEAR}–Present</div>
 
       {/* ── Champion & Sacko Hall of Fame ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 32 }}>
         <div style={S.card}>
           <div style={{ background: "linear-gradient(90deg,#1a1200,#2a1e00)", padding: "12px 18px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 20 }}>🏆</span>
@@ -2020,8 +2020,8 @@ function LeagueHistory({ leagueData }) {
         <div style={{ color: T.grayText, fontSize: 12, marginBottom: 14 }}>
           Aggregate regular season record across all Sleeper seasons ({LEAGUE_START_YEAR}–present). ESPN seasons excluded — game-by-game data unavailable.
         </div>
-        <div style={S.card}>
-          <table style={S.table}>
+        <div style={{ ...S.card, overflowX: "auto" }}>
+          <table style={{ ...S.table, minWidth: 480 }}>
             <thead><tr>
               <th style={S.th}>#</th>
               <th style={S.th}>Owner</th>
