@@ -2814,7 +2814,9 @@ function Archive({ leagueData }) {
                 <>
                   <div style={{ fontWeight: 900, fontSize: 16, color: T.white }}>{sacko.team}</div>
                   <div style={{ fontSize: 12, color: T.grayText, marginTop: 2 }}>{sacko.owner}</div>
-                  <div style={{ fontSize: 11, color: T.grayText, marginTop: 2 }}>{sacko.wins}–{sacko.losses}</div>
+                  <div style={{ fontSize: 12, color: "#ff6666", fontWeight: 700, marginTop: 4 }}>
+                    {sacko.wins}–{sacko.losses} · {sacko.pts.toFixed(1)} pts
+                  </div>
                 </>
               ) : (
                 <div style={{ color: T.grayText, fontSize: 13 }}>No data</div>
