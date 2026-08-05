@@ -171,16 +171,19 @@ async function getAllHistoricalLeagues(currentLeagueInfo, startYear) {
       // Fetch playoff matchups (weeks 15-17) for full season stats
       // This includes BOTH winners and losers bracket teams
       let playoffMatchups = [];
-      if (info.status === "complete") {
-        try {
-          const totalWeeks = info.settings?.playoff_week_start
-            ? [info.settings.playoff_week_start, info.settings.playoff_week_start+1, info.settings.playoff_week_start+2]
-            : [15, 16, 17];
-          const weekData = await Promise.all(
-            totalWeeks.map(w => sf(`/league/${info.league_id}/matchups/${w}`).catch(() => []))
-          );
-          playoffMatchups = weekData.flat().filter(m => m && m.roster_id);
-        } catch {}
+      // Fetch playoff weeks for ANY season with playoff_week_start data or completed status
+      // A 14-week regular season means playoffs run weeks 15-17 regardless of "complete" flag timing
+      try {
+        const playoffStart = info.settings?.playoff_week_start || 15;
+        const totalWeeks = [playoffStart, playoffStart + 1, playoffStart + 2];
+        console.log(`[Archive ${info.season}] Fetching playoff weeks:`, totalWeeks, "status:", info.status);
+        const weekData = await Promise.all(
+          totalWeeks.map(w => sf(`/league/${info.league_id}/matchups/${w}`).catch((e) => { console.warn(`[Archive ${info.season}] Week ${w} fetch failed:`, e.message); return []; }))
+        );
+        playoffMatchups = weekData.flat().filter(m => m && m.roster_id != null);
+        console.log(`[Archive ${info.season}] Playoff matchups collected:`, playoffMatchups.length);
+      } catch(e) {
+        console.warn(`[Archive ${info.season}] Playoff fetch error:`, e.message);
       }
       seasons.push({ info, rosters, users, winnersBracket, losersBracket, playoffMatchups, year });
     } catch {}
@@ -2052,6 +2055,37 @@ function LeagueHistory({ leagueData }) {
         </div>
       </div>
 
+      {/* ── All-Time Points Leaderboard ── */}
+      <div>
+        <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+          All-Time Points Scored
+        </div>
+        <div style={{ color: T.grayText, fontSize: 12, marginBottom: 16 }}>
+          Cumulative fantasy points from {LEAGUE_START_YEAR} (Sleeper era) through current week. Updates automatically as weekly scores finalize.
+        </div>
+        {loadingPoints && <Loading msg="Calculating all-time totals..." />}
+        {!loadingPoints && pointsLeaderboard.length > 0 && (
+          <div style={S.card}>
+            {pointsLeaderboard.map((p, i) => (
+              <div key={p.owner} style={{ padding: "14px 18px", borderBottom: `1px solid ${T.grayMid}`, background: i === 0 ? `${T.gold}11` : "transparent" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={S.rankBadge(i)}>{i + 1}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, color: i === 0 ? T.goldLight : T.white, fontSize: 14 }}>{p.owner}</div>
+                      <div style={{ fontSize: 10, color: T.grayText, letterSpacing: 1 }}>ALL-TIME PTS (SLEEPER ERA)</div>
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 900, color: i === 0 ? T.goldLight : T.tealGlow, fontSize: 22 }}>{p.pts.toFixed(1)}</div>
+                </div>
+                <div style={{ background: T.grayMid, borderRadius: 4, height: 6, overflow: "hidden" }}>
+                  <div style={{ width: `${(p.pts / maxPts) * 100}%`, height: "100%", borderRadius: 4, background: i === 0 ? `linear-gradient(90deg,${T.gold},${T.goldLight})` : `linear-gradient(90deg,${T.teal},${T.tealGlow})` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       {/* ── Year-by-Year Final Standings ── */}
       <div style={{ marginBottom: 32 }}>
         <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
@@ -2142,37 +2176,6 @@ function LeagueHistory({ leagueData }) {
         )}
       </div>
 
-      {/* ── All-Time Points Leaderboard ── */}
-      <div>
-        <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
-          All-Time Points Scored
-        </div>
-        <div style={{ color: T.grayText, fontSize: 12, marginBottom: 16 }}>
-          Cumulative fantasy points from {LEAGUE_START_YEAR} (Sleeper era) through current week. Updates automatically as weekly scores finalize.
-        </div>
-        {loadingPoints && <Loading msg="Calculating all-time totals..." />}
-        {!loadingPoints && pointsLeaderboard.length > 0 && (
-          <div style={S.card}>
-            {pointsLeaderboard.map((p, i) => (
-              <div key={p.owner} style={{ padding: "14px 18px", borderBottom: `1px solid ${T.grayMid}`, background: i === 0 ? `${T.gold}11` : "transparent" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={S.rankBadge(i)}>{i + 1}</span>
-                    <div>
-                      <div style={{ fontWeight: 700, color: i === 0 ? T.goldLight : T.white, fontSize: 14 }}>{p.owner}</div>
-                      <div style={{ fontSize: 10, color: T.grayText, letterSpacing: 1 }}>ALL-TIME PTS (SLEEPER ERA)</div>
-                    </div>
-                  </div>
-                  <div style={{ fontWeight: 900, color: i === 0 ? T.goldLight : T.tealGlow, fontSize: 22 }}>{p.pts.toFixed(1)}</div>
-                </div>
-                <div style={{ background: T.grayMid, borderRadius: 4, height: 6, overflow: "hidden" }}>
-                  <div style={{ width: `${(p.pts / maxPts) * 100}%`, height: "100%", borderRadius: 4, background: i === 0 ? `linear-gradient(90deg,${T.gold},${T.goldLight})` : `linear-gradient(90deg,${T.teal},${T.tealGlow})` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -3011,6 +3014,15 @@ function Archive({ leagueData }) {
 // ─── RULES TAB ────────────────────────────────────────────────────────────────
 const RULES = [
   { category: "League", title: "Roster Size", detail: "15 players: 1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 K, 1 DST, 6 Bench", icon: "🏈" },
+  { category: "Keeper Rules", title: "Keeper Era Begins", detail: "First year of Keeper is 2026. First Keepers declared in the offseason before the 2027 season.", icon: "🔑" },
+  { category: "Keeper Rules", title: "Keeper Limit", detail: "Max 2 Keepers per team each year. A player can only be kept for a maximum of 2 consecutive years, at which point they must be released.", icon: "🔒" },
+  { category: "Keeper Rules", title: "Keeper Deadline", detail: "Keeper players must be declared 1 week before the draft. Deadline is set in Sleeper and will NOT flex if a manager forgets to declare.", icon: "⏰" },
+  { category: "Keeper Rules", title: "Keeper Cost", detail: "Keeping a player costs the draft pick 1 round higher than the round in which the player was drafted last year (e.g. a 4th round pick keeps at a 3rd round cost).", icon: "💰" },
+  { category: "Keeper Rules", title: "Ineligible Rounds", detail: "Players drafted in Round 1 or Round 2 cannot be kept.", icon: "🚫" },
+  { category: "Keeper Rules", title: "Waiver / Undrafted Keepers", detail: "Waiver wire or undrafted players cost the following year's 8th round pick if kept.", icon: "📋" },
+  { category: "Keeper Rules", title: "Dropped Player Cost", detail: "Dropped players maintain their original drafted cost if kept. Example: a player drafted in Round 4, dropped due to injury, then picked up by another manager on waivers, still costs a Round 3 pick to keep the following year.", icon: "🔄" },
+  { category: "Keeper Rules", title: "Traded Player Cost", detail: "Traded players keep their original drafted cost and can only be kept if ALL players in the trade are Keeper-eligible (no Round 1 or Round 2 picks involved).", icon: "🤝" },
+  { category: "Keeper Rules", title: "Cost Collision Rule", detail: "If two Keeper players have the same cost, one moves up an additional round. Example: keeping two Round 5 players from the 2026 draft costs a Round 4 pick and a Round 3 pick in 2027.", icon: "⚖️" },
   { category: "League", title: "Scoring Format", detail: "Standard scoring with decimals. D/ST standard point structure. K decimal scoring incorporated in 2020.", icon: "📊" },
   { category: "League", title: "Schedule", detail: "17 Week format. Regular season is 14 weeks. Schedule randomized each year prior to the season.", icon: "📅" },
   { category: "League", title: "Platform", detail: "Sleeper.app — all rosters, waivers, trades, and scoring managed through Sleeper.", icon: "📱" },
@@ -3038,10 +3050,10 @@ const RULES = [
 ];
 
 function Rules() {
-  const categories = ["League", "Playoffs", "Money", "Conduct", "Waivers & Trades", "Pick 'Em", "📄 Full Document"];
-  const categoryIcons = { "League": "📋", "Playoffs": "🏆", "Money": "💰", "Conduct": "⚖️", "Waivers & Trades": "🔄", "Pick 'Em": "🎲", "📄 Full Document": "📄" };
-  const categoryColors = { "League": T.teal, "Playoffs": T.gold, "Money": "#2e7d32", "Conduct": "#7b1fa2", "Waivers & Trades": "#1565c0", "Pick 'Em": "#c62828", "📄 Full Document": T.grayMid };
-  const categoryGlows = { "League": T.tealGlow, "Playoffs": T.goldLight, "Money": "#66bb6a", "Conduct": "#ce93d8", "Waivers & Trades": "#64b5f6", "Pick 'Em": "#ef9a9a", "📄 Full Document": T.grayText };
+  const categories = ["League", "Keeper Rules", "Playoffs", "Money", "Conduct", "Waivers & Trades", "Pick 'Em", "📄 Full Document"];
+  const categoryIcons = { "League": "📋", "Keeper Rules": "🔑", "Playoffs": "🏆", "Money": "💰", "Conduct": "⚖️", "Waivers & Trades": "🔄", "Pick 'Em": "🎲", "📄 Full Document": "📄" };
+  const categoryColors = { "League": T.teal, "Keeper Rules": "#d4af37", "Playoffs": T.gold, "Money": "#2e7d32", "Conduct": "#7b1fa2", "Waivers & Trades": "#1565c0", "Pick 'Em": "#c62828", "📄 Full Document": T.grayMid };
+  const categoryGlows = { "League": T.tealGlow, "Keeper Rules": "#f0d878", "Playoffs": T.goldLight, "Money": "#66bb6a", "Conduct": "#ce93d8", "Waivers & Trades": "#64b5f6", "Pick 'Em": "#ef9a9a", "📄 Full Document": T.grayText };
   const [activeCategory, setActiveCategory] = useState("League");
 
   return (
