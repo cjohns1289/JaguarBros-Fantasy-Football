@@ -1868,26 +1868,16 @@ function LeagueHistory({ leagueData }) {
         setLoading(false);
         setLoadingPoints(true);
         const ownerPoints = {};
-        const completedSeasons = historicalSeasons.filter(s => s.info.status === "complete");
-        for (const season of completedSeasons) {
-          const userMap = {};
-          season.users.forEach(u => { userMap[u.user_id] = u; });
-          season.rosters.forEach(r => {
-            const user = userMap[r.owner_id] || {};
-            const name = user.display_name || "Unknown";
-            const pts = (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100;
-            ownerPoints[name] = (ownerPoints[name] || 0) + pts;
+        // Use ALL historical seasons (not gated by status, since that flag is unreliable)
+        // and include playoff points via buildFullSeasonStandings for consistency with Archive
+        for (const season of historicalSeasons) {
+          const fullStandings = buildFullSeasonStandings(season.rosters || [], season.users || [], season.playoffMatchups || []);
+          fullStandings.forEach(t => {
+            ownerPoints[t.owner] = (ownerPoints[t.owner] || 0) + t.pts;
           });
         }
-        // Add current season
-        const curUserMap = {};
-        leagueData.users.forEach(u => { curUserMap[u.user_id] = u; });
-        leagueData.rosters.forEach(r => {
-          const user = curUserMap[r.owner_id] || {};
-          const name = user.display_name || "Unknown";
-          const pts = (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100;
-          ownerPoints[name] = (ownerPoints[name] || 0) + pts;
-        });
+        // Note: current live season is already included via historicalSeasons above
+        // (getAllHistoricalLeagues starts from the current league and walks backward)
         setPointsData(ownerPoints);
         setLoadingPoints(false);
       } catch (e) {
@@ -1913,7 +1903,8 @@ function LeagueHistory({ leagueData }) {
   try {
     sleeperSummaries = (seasons || []).map(s => {
       try {
-        const standings = buildStandingsFromData(s.rosters || [], s.users || []);
+        // Use full-season standings (regular + playoff W/L/pts) for consistency with Archive tab
+        const standings = buildFullSeasonStandings(s.rosters || [], s.users || [], s.playoffMatchups || []);
         const champ = findChampion(s.winnersBracket, s.rosters, s.users, standings);
         const sacko = standings.length > 0 ? standings[standings.length - 1] : null;
         return { year: s.year, standings, champ, sacko, status: s.info?.status || "complete", source: "sleeper" };
