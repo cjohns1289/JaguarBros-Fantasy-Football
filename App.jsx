@@ -1643,39 +1643,7 @@ function WeeklyPicks({ leagueData }) {
         ⭐ Special Picks
       </div>
 
-      {/* Highest Score */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score This Week</span>
-          {picks.highestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
-        </div>
-        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
-          {standings.map(t => (
-            <button key={t.rosterId} style={S.btn(picks.highestScore === t.rosterId)}
-              onClick={() => handlePick("highestScore", t.rosterId)}>
-              {t.team}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Lowest Score */}
-      <div style={{ ...S.pickCard, marginBottom: 10 }}>
-        <div style={S.pickHeader}>
-          <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>💩 Lowest Score This Week</span>
-          {picks.lowestScore !== undefined && <span style={S.badge("teal")}>✓ PICKED</span>}
-        </div>
-        <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 7 }}>
-          {standings.map(t => (
-            <button key={t.rosterId} style={S.btn(picks.lowestScore === t.rosterId)}
-              onClick={() => handlePick("lowestScore", t.rosterId)}>
-              {t.team}
-            </button>
-          ))}
-        </div>
-      </div>
-
-            {/* Highest Score — pick a team */}
+      {/* Highest Score — pick a team */}
       <div style={{ ...S.pickCard, marginBottom: 10 }}>
         <div style={S.pickHeader}>
           <span style={{ color: T.goldLight, fontSize: 12, fontWeight: 700 }}>🔥 Highest Score This Week</span>
