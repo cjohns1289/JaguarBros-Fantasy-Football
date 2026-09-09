@@ -336,8 +336,24 @@ function getNowEastern() {
 // Returns true if picks are currently open
 // Opens: Tuesday 3:00am Eastern
 // Locks: Thursday 8:15pm Eastern
-function isPicksWindowOpen() {
+// Week 1 (2026) kicks off Wednesday 9/9 at 8:20pm ET instead of the usual Thursday.
+// This is a one-time exception — every week from 9/17 onward locks Thursday 8:15pm ET as normal.
+function isWeek1LockWindow() {
   const now = getNowEastern();
+  // Week 1 lock window: Tue 9/8 3:00am ET through Wed 9/9 8:20pm ET
+  const openBound = new Date("2026-09-08T03:00:00-04:00");
+  const lockBound = new Date("2026-09-09T20:20:00-04:00");
+  return now >= openBound && now < lockBound;
+}
+
+function isPicksWindowOpen() {
+  // One-time Week 1 exception — locks Wednesday 8:20pm instead of Thursday 8:15pm
+  const now = getNowEastern();
+  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00"); // after this, normal weekly logic applies
+  if (now < week1Cutoff) {
+    return isWeek1LockWindow();
+  }
+
   const day = now.getDay();
   const hour = now.getHours();
   const minute = now.getMinutes();
@@ -356,6 +372,13 @@ function isPicksWindowOpen() {
 // Returns false if picks haven't opened yet (don't show checklist)
 function isAfterDeadline() {
   const now = getNowEastern();
+  // Week 1 one-time exception: deadline was Wed 9/9 8:20pm ET
+  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00");
+  if (now < week1Cutoff) {
+    const lockBound = new Date("2026-09-09T20:20:00-04:00");
+    return now >= lockBound;
+  }
+
   const day = now.getDay();
   const hour = now.getHours();
   const minute = now.getMinutes();
@@ -370,6 +393,20 @@ function isAfterDeadline() {
 // Returns a human-readable string of when picks open/close next
 function getPicksWindowMessage() {
   const now = getNowEastern();
+
+  // Week 1 one-time exception messaging
+  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00");
+  if (now < week1Cutoff) {
+    const lockBound = new Date("2026-09-09T20:20:00-04:00");
+    if (now < lockBound) {
+      const msLeft = lockBound - now;
+      const h = Math.floor(msLeft / 3600000);
+      const m = Math.floor((msLeft % 3600000) / 60000);
+      return `🔒 Picks lock in ${h}h ${m}m (Wed 9/9 8:20pm ET — Week 1 only)`;
+    }
+    return "🔐 Picks are locked. Opens Tuesday 9/15 at 3:00am ET.";
+  }
+
   const day = now.getDay();
   const hour = now.getHours();
   const minute = now.getMinutes();
