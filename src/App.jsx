@@ -347,10 +347,13 @@ function isWeek1LockWindow() {
 }
 
 function isPicksWindowOpen() {
-  // One-time Week 1 exception — locks Wednesday 8:20pm instead of Thursday 8:15pm
+  // One-time Week 1 exception — locks Wed 9/9 8:20pm ET instead of the usual Thursday.
+  // This window must stay in effect through the END of Week 1 (until the normal cycle
+  // resumes Tuesday 9/15 3am ET) — NOT just past the lock moment, or normal weekly
+  // logic would incorrectly reopen picks on Thursday 9/10.
   const now = getNowEastern();
-  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00"); // after this, normal weekly logic applies
-  if (now < week1Cutoff) {
+  const week1CycleEnd = new Date("2026-09-15T03:00:00-04:00"); // normal Tue 3am cycle resumes here
+  if (now < week1CycleEnd) {
     return isWeek1LockWindow();
   }
 
@@ -372,9 +375,10 @@ function isPicksWindowOpen() {
 // Returns false if picks haven't opened yet (don't show checklist)
 function isAfterDeadline() {
   const now = getNowEastern();
-  // Week 1 one-time exception: deadline was Wed 9/9 8:20pm ET
-  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00");
-  if (now < week1Cutoff) {
+  // Week 1 one-time exception: deadline was Wed 9/9 8:20pm ET.
+  // Stays in effect through the full Week 1 window (until Tue 9/15 3am ET cycle resumes).
+  const week1CycleEnd = new Date("2026-09-15T03:00:00-04:00");
+  if (now < week1CycleEnd) {
     const lockBound = new Date("2026-09-09T20:20:00-04:00");
     return now >= lockBound;
   }
@@ -394,9 +398,9 @@ function isAfterDeadline() {
 function getPicksWindowMessage() {
   const now = getNowEastern();
 
-  // Week 1 one-time exception messaging
-  const week1Cutoff = new Date("2026-09-10T00:00:00-04:00");
-  if (now < week1Cutoff) {
+  // Week 1 one-time exception messaging — stays in effect through the full Week 1 window
+  const week1CycleEnd = new Date("2026-09-15T03:00:00-04:00");
+  if (now < week1CycleEnd) {
     const lockBound = new Date("2026-09-09T20:20:00-04:00");
     if (now < lockBound) {
       const msLeft = lockBound - now;
