@@ -1333,6 +1333,7 @@ function WeeklyPicks({ leagueData }) {
   const [windowMsg, setWindowMsg] = useState(getPicksWindowMessage());
   const [weekPicks, setWeekPicks] = useState(null);
   const [loadingWeekPicks, setLoadingWeekPicks] = useState(false);
+  const [viewPicksOwner, setViewPicksOwner] = useState("");
 
   // Derived values — must be defined before useEffects that reference them
   const standings = leagueData ? buildStandingsFromData(leagueData.rosters, leagueData.users) : [];
@@ -1482,6 +1483,9 @@ function WeeklyPicks({ leagueData }) {
     const submitted = weekPicks ? Object.values(weekPicks) : [];
     const submittedNames = new Set(submitted.map(p => p.displayName).filter(Boolean));
     const allTeams = standings;
+    const viewTeamPicks = viewPicksOwner
+      ? submitted.find(p => p.displayName === viewPicksOwner)
+      : null;
 
     return (
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 20px" }}>
@@ -1554,6 +1558,97 @@ function WeeklyPicks({ leagueData }) {
           )}
         </div>
           )}
+
+        {/* View a team's submitted picks */}
+        {afterDeadline && (
+          <div style={{ ...S.card, marginTop: 20 }}>
+            <div style={{ background: "linear-gradient(90deg,#001f26,#003840)", padding: "12px 18px", borderBottom: `2px solid ${T.teal}` }}>
+              <span style={{ fontWeight: 900, color: T.tealGlow, fontSize: 14, letterSpacing: 2, textTransform: "uppercase" }}>
+                View Week {currentWeek} Picks
+              </span>
+            </div>
+            <div style={{ padding: 18 }}>
+              <select
+                value={viewPicksOwner}
+                onChange={e => setViewPicksOwner(e.target.value)}
+                style={{ ...S.input, marginBottom: viewTeamPicks ? 16 : 0, maxWidth: 320 }}
+              >
+                <option value="">Select a team...</option>
+                {allTeams.map(t => (
+                  <option key={t.rosterId} value={t.owner} disabled={!submittedNames.has(t.owner)}>
+                    {t.team} ({t.owner}){!submittedNames.has(t.owner) ? " — not submitted" : ""}
+                  </option>
+                ))}
+              </select>
+
+              {viewTeamPicks && matchups && (
+                <div>
+                  <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
+                    Matchup Winners
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
+                    {matchups.map((m, idx) => {
+                      const pickedRosterId = viewTeamPicks[`match_${m.matchupId}`];
+                      if (pickedRosterId == null) return null;
+                      const pickedTeam = pickedRosterId === m.home.rosterId ? m.home : m.away;
+                      return (
+                        <div key={m.matchupId} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                          <span style={{ color: T.grayText }}>Matchup {idx + 1}</span>
+                          <span style={{ color: T.tealGlow, fontWeight: 700 }}>{pickedTeam.team}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
+                    Special Picks
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {viewTeamPicks.highestScore != null && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                        <span style={{ color: T.grayText }}>🔥 Highest Score</span>
+                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
+                          {standings.find(t => t.rosterId === viewTeamPicks.highestScore)?.team || "—"}
+                        </span>
+                      </div>
+                    )}
+                    {viewTeamPicks.lowestScore != null && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                        <span style={{ color: T.grayText }}>💩 Lowest Score</span>
+                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
+                          {standings.find(t => t.rosterId === viewTeamPicks.lowestScore)?.team || "—"}
+                        </span>
+                      </div>
+                    )}
+                    {viewTeamPicks.highestScoreGuess != null && viewTeamPicks.highestScoreGuess !== "" && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                        <span style={{ color: T.grayText }}>🎯 Highest Score Total Guess</span>
+                        <span style={{ color: T.goldLight, fontWeight: 700 }}>{viewTeamPicks.highestScoreGuess} pts</span>
+                      </div>
+                    )}
+                    {viewTeamPicks.lowestScoreGuess != null && viewTeamPicks.lowestScoreGuess !== "" && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                        <span style={{ color: T.grayText }}>🎯 Lowest Score Total Guess</span>
+                        <span style={{ color: T.goldLight, fontWeight: 700 }}>{viewTeamPicks.lowestScoreGuess} pts</span>
+                      </div>
+                    )}
+                    {viewTeamPicks.biggestBlowout != null && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
+                        <span style={{ color: T.grayText }}>💥 Biggest Blowout</span>
+                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
+                          {(() => {
+                            const m = matchups.find(mm => mm.matchupId === viewTeamPicks.biggestBlowout);
+                            return m ? `${m.home.owner} vs ${m.away.owner}` : "—";
+                          })()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1793,12 +1888,99 @@ function WeeklyPicks({ leagueData }) {
 function PickLeaderboard({ leagueData }) {
   const [allPicks, setAllPicks] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [grading, setGrading] = useState(false);
+  const [gradedResults, setGradedResults] = useState({});
   const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
 
   useEffect(() => {
     if (!fbReady()) { setLoading(false); return; }
     fbGet("").then(d => { setAllPicks(d); setLoading(false); }).catch(() => setLoading(false));
   }, []);
+
+  // Auto-grade every completed week using Sleeper's final scores
+  useEffect(() => {
+    if (!allPicks || !leagueData) return;
+    async function gradeAll() {
+      setGrading(true);
+      const weekKeys = Object.keys(allPicks).filter(k => k.startsWith("week"));
+      const results = {};
+
+      for (const weekKey of weekKeys) {
+        const weekNum = parseInt(weekKey.replace("week", ""), 10);
+        if (!weekNum || weekNum >= currentWeek) continue;
+
+        let matchups;
+        try {
+          const raw = await sf(`/league/${leagueData.league.league_id}/matchups/${weekNum}`);
+          matchups = buildMatchupPairs(raw, leagueData.rosters, leagueData.users);
+        } catch { continue; }
+
+        if (!matchups || matchups.length === 0 || !matchups.every(m => m.complete)) continue;
+
+        const allTeamScores = matchups.flatMap(m => [
+          { rosterId: m.home.rosterId, pts: m.homePts },
+          { rosterId: m.away.rosterId, pts: m.awayPts },
+        ]);
+        const actualHighestTeam = allTeamScores.reduce((a, b) => (b.pts > a.pts ? b : a));
+        const actualLowestTeam = allTeamScores.reduce((a, b) => (b.pts < a.pts ? b : a));
+        const biggestBlowout = matchups.reduce((best, m) => {
+          const diff = Math.abs(m.homePts - m.awayPts);
+          return !best || diff > best.diff ? { matchupId: m.matchupId, diff } : best;
+        }, null);
+
+        const weekPicks = allPicks[weekKey] || {};
+        Object.entries(weekPicks).forEach(([ownerKey, picks]) => {
+          if (!results[ownerKey]) results[ownerKey] = { correct: 0, total: 0 };
+
+          matchups.forEach(m => {
+            const pickKey = `match_${m.matchupId}`;
+            if (picks[pickKey] == null) return;
+            results[ownerKey].total += 1;
+            const winner = m.homePts >= m.awayPts ? m.home.rosterId : m.away.rosterId;
+            if (picks[pickKey] === winner) results[ownerKey].correct += 1;
+          });
+
+          if (picks.highestScore != null) {
+            results[ownerKey].total += 1;
+            if (picks.highestScore === actualHighestTeam.rosterId) results[ownerKey].correct += 1;
+          }
+          if (picks.lowestScore != null) {
+            results[ownerKey].total += 1;
+            if (picks.lowestScore === actualLowestTeam.rosterId) results[ownerKey].correct += 1;
+          }
+          if (picks.biggestBlowout != null) {
+            results[ownerKey].total += 1;
+            if (picks.biggestBlowout === biggestBlowout?.matchupId) results[ownerKey].correct += 1;
+          }
+          if (picks.highestScoreGuess != null && picks.highestScoreGuess !== "") {
+            results[ownerKey].total += 1;
+            results[ownerKey]._highestGuessDiff = Math.abs(parseFloat(picks.highestScoreGuess) - actualHighestTeam.pts);
+            results[ownerKey]._highestGuessTime = picks.submittedAt;
+          }
+          if (picks.lowestScoreGuess != null && picks.lowestScoreGuess !== "") {
+            results[ownerKey].total += 1;
+            results[ownerKey]._lowestGuessDiff = Math.abs(parseFloat(picks.lowestScoreGuess) - actualLowestTeam.pts);
+            results[ownerKey]._lowestGuessTime = picks.submittedAt;
+          }
+        });
+
+        const withHighGuess = Object.entries(results).filter(([,r]) => r._highestGuessDiff != null);
+        if (withHighGuess.length > 0) {
+          withHighGuess.sort((a, b) => a[1]._highestGuessDiff - b[1]._highestGuessDiff || new Date(a[1]._highestGuessTime) - new Date(b[1]._highestGuessTime));
+          results[withHighGuess[0][0]].correct += 1;
+        }
+        const withLowGuess = Object.entries(results).filter(([,r]) => r._lowestGuessDiff != null);
+        if (withLowGuess.length > 0) {
+          withLowGuess.sort((a, b) => a[1]._lowestGuessDiff - b[1]._lowestGuessDiff || new Date(a[1]._lowestGuessTime) - new Date(b[1]._lowestGuessTime));
+          results[withLowGuess[0][0]].correct += 1;
+        }
+      }
+
+      setGradedResults(results);
+      setGrading(false);
+    }
+    gradeAll();
+  }, [allPicks, leagueData, currentWeek]);
 
   if (!leagueData) return <Loading />;
   if (!fbReady()) return (
@@ -1814,23 +1996,16 @@ function PickLeaderboard({ leagueData }) {
   if (loading) return <Loading msg="Loading pick history..." />;
   const standings = buildStandingsFromData(leagueData.rosters, leagueData.users);
   const leaderboard = standings.map(t => {
-    let correct = 0, total = 0;
-    if (allPicks) {
-      Object.values(allPicks).forEach(weekData => {
-        const key = t.owner.replace(/\s+/g, "_");
-        if (weekData[key]) {
-          const p = weekData[key];
-          const pickKeys = Object.keys(p).filter(k => k.startsWith("match_") || ["highestScore","lowestScore","biggestBlowout"].includes(k));
-          total += pickKeys.length;
-        }
-      });
-    }
-    return { ...t, correct, total };
-  });
+    const key = t.owner.replace(/\s+/g, "_");
+    const r = gradedResults[key] || { correct: 0, total: 0 };
+    return { ...t, correct: r.correct, total: r.total };
+  }).sort((a, b) => b.correct - a.correct || (b.total > 0 ? b.correct / b.total : 0) - (a.total > 0 ? a.correct / a.total : 0));
   return (
     <div style={S.section}>
       <div style={S.sectionTitle}>📊 Pick Accuracy — Season Rankings</div>
-      <div style={{ color: T.grayText, fontSize: 12, marginBottom: 14 }}>Pick grading is updated by the commissioner in Firebase after each week's games complete.</div>
+      <div style={{ color: T.grayText, fontSize: 12, marginBottom: 14 }}>
+        {grading ? "Grading completed weeks against final Sleeper scores..." : "Auto-graded from Sleeper's final scores after each week completes."}
+      </div>
       <div style={S.card}>
         {leaderboard.map((p, i) => (
           <div key={p.rosterId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 18px", borderBottom: `1px solid ${T.grayMid}`, background: i === 0 ? `${T.gold}11` : i === 1 ? `${T.teal}0a` : "transparent" }}>
