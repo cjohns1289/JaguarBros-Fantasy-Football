@@ -1090,12 +1090,19 @@ async function buildWeeklyRecapData(leagueData, week) {
     // "Almost had it" — loser's top scorer alone was within range of erasing the margin
     const loserTopCouldHaveFlippedIt = loserTop && loserTop.pts > 0 && margin <= loserTop.pts * 0.6 && margin > 0;
 
+    // The inverse, and often the more common story: the loser needed a big
+    // game from their best player and didn't get it. Their top scorer's
+    // output was real but modest — not the kind of explosion that would
+    // have covered the gap — which is its own distinct, honest storyline.
+    const loserTopFellShort = loserTop && margin > 0 && margin <= 25 &&
+      !loserTopCouldHaveFlippedIt && loserTop.pts < margin + 5;
+
     return {
       home, away, homePts, awayPts, margin, winner, loser, winnerPts, loserPts,
       winnerTop, loserTop, winnerTop3, loserTop3,
       loserBenchPts, winnerBenchPts, loserBenchCouldHaveWon,
       winnerOverProjected, loserUnderProjected,
-      loserTopCouldHaveFlippedIt,
+      loserTopCouldHaveFlippedIt, loserTopFellShort,
     };
   }).sort((a, b) => a.margin - b.margin);
 
@@ -1189,6 +1196,15 @@ function narrateMatchup(m, i, isClosest, isBlowout, used) {
       `If ${m.loserTop.name} had done just a little more, ${m.loser.owner} walks away with the win instead of ${m.loserTop.pts.toFixed(1)} points and a loss.`,
     ];
     sentences.push(pickUnused(nearMissLines, i + 2, used));
+  } else if (m.loserTopFellShort && m.loserTop) {
+    const fellShortLines = [
+      `${m.loser.owner} needed a big night from ${m.loserTop.name} and didn't get it — ${m.loserTop.pts.toFixed(1)} points wasn't enough to cover the gap.`,
+      `${m.loserTop.name} was the last hope for ${m.loser.owner}, but ${m.loserTop.pts.toFixed(1)} points fell short of what the moment required.`,
+      `${m.loser.owner} was counting on ${m.loserTop.name} to carry them home; instead it was a quiet ${m.loserTop.pts.toFixed(1)}-point night.`,
+      `The math was simple for ${m.loser.owner}: get a monster game from ${m.loserTop.name}. Instead they got ${m.loserTop.pts.toFixed(1)}, and that was that.`,
+      `${m.loserTop.name} had a chance to be the hero for ${m.loser.owner} and came up empty, managing just ${m.loserTop.pts.toFixed(1)}.`,
+    ];
+    sentences.push(pickUnused(fellShortLines, i + 7, used));
   } else if (m.loserBenchCouldHaveWon && m.loserBenchPts > 0) {
     const benchLines = [
       `The real story for ${m.loser.owner} might be the bench — ${m.loserBenchPts.toFixed(1)} points sat unused, more than enough to flip this result.`,
