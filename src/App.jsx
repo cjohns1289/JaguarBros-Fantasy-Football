@@ -1954,7 +1954,10 @@ function PickLeaderboard({ leagueData }) {
         }, null);
 
         const weekPicks = allPicks[weekKey] || {};
-        Object.entries(weekPicks).forEach(([ownerKey, picks]) => {
+        Object.entries(weekPicks).forEach(([uidKey, picks]) => {
+          // Picks are stored keyed by Google UID, not owner name — use the
+          // displayName saved inside the pick payload to match against standings.
+          const ownerKey = picks.displayName || uidKey;
           if (!results[ownerKey]) results[ownerKey] = { correct: 0, total: 0 };
 
           matchups.forEach(m => {
@@ -2021,8 +2024,7 @@ function PickLeaderboard({ leagueData }) {
   if (loading) return <Loading msg="Loading pick history..." />;
   const standings = buildStandingsFromData(leagueData.rosters, leagueData.users);
   const leaderboard = standings.map(t => {
-    const key = t.owner.replace(/\s+/g, "_");
-    const r = gradedResults[key] || { correct: 0, total: 0 };
+    const r = gradedResults[t.owner] || { correct: 0, total: 0 };
     return { ...t, correct: r.correct, total: r.total };
   }).sort((a, b) => b.correct - a.correct || (b.total > 0 ? b.correct / b.total : 0) - (a.total > 0 ? a.correct / a.total : 0));
   return (
