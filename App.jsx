@@ -484,6 +484,31 @@ function isOffseason() {
   return false;
 }
 
+// Calendar-based week calculator — independent of Sleeper's own "leg" field,
+// which does not reliably update on a fixed schedule. Week advances every
+// Tuesday at 6:00am ET, anchored to Week 1's actual opener (Wed 9/9/2026).
+// This is the single source of truth for "what week is it" across the whole site —
+// used for the Standings display AND for triggering weekly grading (Incentives, Pick Leaderboard).
+function getCalendarWeek() {
+  const now = getNowEastern();
+  // Week 1 begins the Tuesday before its games (9/8/2026 6:00am ET), matching
+  // the normal Tue-open cycle even though Week 1 itself had a one-time Wed lock.
+  const week1Start = new Date("2026-09-08T06:00:00-04:00");
+  if (now < week1Start) return 0; // preseason / offseason relative to this calc
+
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const weeksElapsed = Math.floor((now - week1Start) / msPerWeek);
+  const week = weeksElapsed + 1;
+  return Math.min(week, 18); // cap at 18 (regular season + playoffs)
+}
+
+// A week is "graded" (safe to auto-grade Incentives/Picks) once its Tuesday 6am
+// grading trigger has passed — i.e. once getCalendarWeek() has moved past it.
+function getCompletedWeeksForGrading() {
+  const current = getCalendarWeek();
+  return Math.max(current - 1, 0);
+}
+
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
@@ -1027,7 +1052,7 @@ function Scoreboard({ leagueData }) {
   const [week, setWeek] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
 
   useEffect(() => { if (leagueData) setWeek(currentWeek); }, [leagueData, currentWeek]);
 
@@ -1337,7 +1362,7 @@ function WeeklyPicks({ leagueData }) {
 
   // Derived values — must be defined before useEffects that reference them
   const standings = leagueData ? buildStandingsFromData(leagueData.rosters, leagueData.users) : [];
-  const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
   const leagueId = leagueData?.league?.league_id;
 
   // Re-check picks window every 30 seconds
@@ -1890,7 +1915,7 @@ function PickLeaderboard({ leagueData }) {
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   const [gradedResults, setGradedResults] = useState({});
-  const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
 
   useEffect(() => {
     if (!fbReady()) { setLoading(false); return; }
@@ -2739,7 +2764,7 @@ function WeeklyIncentives({ leagueData }) {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
 
-  const currentWeek = leagueData?.leagueInfo?.settings?.leg || 1;
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
   const leagueId = leagueData?.league?.league_id;
   const completedWeeks = Math.min(currentWeek - 1, 15); // Only calc completed weeks
 
@@ -3330,7 +3355,7 @@ export default function App() {
   }, []);
 
   const leagueName = leagueData?.leagueInfo?.name || "JaguarBros Fantasy Football";
-  const currentWeek = leagueData?.leagueInfo?.settings?.leg || "—";
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || "—");
 
   return (
     <div style={S.app}>
