@@ -1006,6 +1006,163 @@ function JaguarsTile() {
 }
 
 // ─── STANDINGS TAB ────────────────────────────────────────────────────────────
+// ─── WEEKLY RECAP (Standings page) ─────────────────────────────────────────────
+function WeeklyRecap({ leagueData }) {
+  const [recap, setRecap] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
+  const recapWeek = isAfterDeadline() ? currentWeek : currentWeek - 1;
+
+  useEffect(() => {
+    if (!leagueData || recapWeek < 1) { setLoading(false); return; }
+
+    async function buildRecap() {
+      setLoading(true);
+      try {
+        const raw = await sf(`/league/${leagueData.league.league_id}/matchups/${recapWeek}`);
+        if (!Array.isArray(raw) || raw.length === 0) { setRecap(null); setLoading(false); return; }
+
+        const userMap = {};
+        leagueData.users.forEach(u => { userMap[u.user_id] = u; });
+        const rosterMap = {};
+        leagueData.rosters.forEach(r => {
+          const user = userMap[r.owner_id] || {};
+          rosterMap[r.roster_id] = {
+            rosterId: r.roster_id,
+            owner: user.display_name || "Unknown",
+            team: user.metadata?.team_name || user.display_name || `Team ${r.roster_id}`,
+          };
+        });
+
+        const byMatchup = {};
+        raw.forEach(m => {
+          if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
+          byMatchup[m.matchup_id].push(m);
+        });
+        const pairs = Object.values(byMatchup).filter(p => p.length === 2);
+        if (pairs.length === 0 || !pairs.every(p => (p[0].points || 0) > 0 || (p[1].points || 0) > 0)) {
+          setRecap(null); setLoading(false); return;
+        }
+
+        // Fetch NFL player directory for names/positions (top scorer callouts)
+        let playerDetails = {};
+        try {
+          playerDetails = await fetchWithFallback("https://api.sleeper.app/v1/players/nfl") || {};
+        } catch {}
+
+        const matchups = pairs.map(([a, b]) => {
+          const home = rosterMap[a.roster_id] || { team: "TBD", owner: "TBD" };
+          const away = rosterMap[b.roster_id] || { team: "TBD", owner: "TBD" };
+          const homePts = a.points || 0, awayPts = b.points || 0;
+          const margin = Math.abs(homePts - awayPts);
+          const winner = homePts >= awayPts ? home : away;
+          const loser = homePts >= awayPts ? away : home;
+          const winnerPts = Math.max(homePts, awayPts);
+          const loserPts = Math.min(homePts, awayPts);
+
+          // Find each team's top scoring starter for commentary
+          const topStarter = (entry) => {
+            const starters = entry.starters || [];
+            const pts = entry.players_points || {};
+            let best = null, bestPts = -Infinity;
+            starters.forEach(pid => {
+              const p = pts[pid] || 0;
+              if (p > bestPts) { bestPts = p; best = pid; }
+            });
+            const player = playerDetails[best];
+            const name = player ? `${player.first_name} ${player.last_name}` : null;
+            return name ? { name, pts: bestPts, position: player.position } : null;
+          };
+
+          const winnerEntry = homePts >= awayPts ? a : b;
+          const loserEntry = homePts >= awayPts ? b : a;
+
+          return {
+            home, away, homePts, awayPts, margin, winner, loser, winnerPts, loserPts,
+            winnerTopPlayer: topStarter(winnerEntry),
+            loserTopPlayer: topStarter(loserEntry),
+          };
+        }).sort((a, b) => a.margin - b.margin);
+
+        const closest = matchups[0];
+        const blowout = matchups[matchups.length - 1];
+        const highScorer = matchups.reduce((best, m) => m.winnerPts > (best?.winnerPts || 0) ? m : best, null);
+        const bestLoser = matchups.reduce((best, m) => m.loserPts > (best?.loserPts || 0) ? m : best, null);
+
+        setRecap({ week: recapWeek, matchups, closest, blowout, highScorer, bestLoser });
+      } catch(e) {
+        console.warn("[WeeklyRecap] Error:", e.message);
+        setRecap(null);
+      }
+      setLoading(false);
+    }
+    buildRecap();
+  }, [leagueData, recapWeek]);
+
+  if (!leagueData || recapWeek < 1) return null;
+  if (loading) return (
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px 20px" }}>
+      <Loading msg={`Building Week ${recapWeek} recap...`} />
+    </div>
+  );
+  if (!recap) return null;
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 20px 0" }}>
+      <div style={{
+        background: "linear-gradient(135deg,#001a1f 0%,#003840 100%)",
+        border: `1px solid ${T.teal}`, borderRadius: 10, padding: "18px 22px",
+        boxShadow: `0 0 20px ${T.teal}22`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 20 }}>📰</span>
+          <span style={{ fontWeight: 900, color: T.tealGlow, fontSize: 15, letterSpacing: 2, textTransform: "uppercase" }}>
+            Week {recap.week} Recap
+          </span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {recap.matchups.map((m, i) => {
+            const isClosest = m === recap.closest;
+            const isBlowout = m === recap.blowout;
+            return (
+              <div key={i} style={{
+                background: "#0d1f22", borderRadius: 8, padding: "12px 16px",
+                borderLeft: `3px solid ${isClosest ? T.goldLight : isBlowout ? "#ff6666" : T.grayMid}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+                  <span style={{ fontSize: 13 }}>
+                    <strong style={{ color: T.goldLight }}>{m.winner.team}</strong>
+                    <span style={{ color: T.grayText }}> def. </span>
+                    <strong style={{ color: T.white }}>{m.loser.team}</strong>
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.tealGlow }}>
+                    {m.winnerPts.toFixed(1)} – {m.loserPts.toFixed(1)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: T.grayText, lineHeight: 1.5 }}>
+                  {isClosest && <span style={{ color: T.goldLight, fontWeight: 700 }}>🔥 Nail-biter — </span>}
+                  {isBlowout && <span style={{ color: "#ff6666", fontWeight: 700 }}>💥 Blowout — </span>}
+                  Won by {m.margin.toFixed(1)}.
+                  {m.winnerTopPlayer && ` ${m.winnerTopPlayer.name} (${m.winnerTopPlayer.position}) carried the win with ${m.winnerTopPlayer.pts.toFixed(1)} pts.`}
+                  {m.loserTopPlayer && m.margin < 10 && ` ${m.loser.owner}'s ${m.loserTopPlayer.name} put up ${m.loserTopPlayer.pts.toFixed(1)} but it wasn't enough.`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {recap.bestLoser && recap.bestLoser.loserPts > 0 && (
+          <div style={{ marginTop: 14, padding: "10px 16px", background: "#1a0000", border: "1px solid #660000", borderRadius: 8, fontSize: 12, color: "#ff9999" }}>
+            💀 Tough beat: <strong>{recap.bestLoser.loser.team}</strong> dropped {recap.bestLoser.loserPts.toFixed(1)} points and still lost.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function Standings({ leagueData }) {
   if (!leagueData) return <Loading />;
   const { rosters, users, leagueInfo } = leagueData;
@@ -1995,6 +2152,26 @@ function PickLeaderboard({ leagueData }) {
         };
       });
 
+      // Determine the single winning High Guess and Low Guess for the week —
+      // closest guess to the actual value wins; ties broken by earliest submission time.
+      if (actualHighestTeam && actualLowestTeam) {
+        const withHighGuess = rows
+          .filter(r => r.submitted && r.highestGuess != null && r.highestGuess !== "")
+          .map(r => ({ r, diff: Math.abs(parseFloat(r.highestGuess) - actualHighestTeam.pts) }));
+        if (withHighGuess.length > 0) {
+          withHighGuess.sort((a, b) => a.diff - b.diff || new Date(a.r.submittedAt) - new Date(b.r.submittedAt));
+          withHighGuess[0].r.highestGuessCorrect = true;
+        }
+
+        const withLowGuess = rows
+          .filter(r => r.submitted && r.lowestGuess != null && r.lowestGuess !== "")
+          .map(r => ({ r, diff: Math.abs(parseFloat(r.lowestGuess) - actualLowestTeam.pts) }));
+        if (withLowGuess.length > 0) {
+          withLowGuess.sort((a, b) => a.diff - b.diff || new Date(a.r.submittedAt) - new Date(b.r.submittedAt));
+          withLowGuess[0].r.lowestGuessCorrect = true;
+        }
+      }
+
       setArchiveDetail({ rows, matchups, isComplete: !!actualHighestTeam });
       setArchiveLoading(false);
     }
@@ -2149,8 +2326,20 @@ function PickLeaderboard({ leagueData }) {
                             </span>
                           ) : "—"}
                         </td>
-                        <td style={{ ...S.td, fontSize: 12 }}>{row.highestGuess || "—"}</td>
-                        <td style={{ ...S.td, fontSize: 12 }}>{row.lowestGuess || "—"}</td>
+                        <td style={S.td}>
+                          {row.highestGuess ? (
+                            <span style={{ fontSize: 12, color: row.highestGuessCorrect ? T.tealGlow : T.grayText }}>
+                              {row.highestGuessCorrect ? "✅" : "—"} {row.highestGuess}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={S.td}>
+                          {row.lowestGuess ? (
+                            <span style={{ fontSize: 12, color: row.lowestGuessCorrect ? T.tealGlow : T.grayText }}>
+                              {row.lowestGuessCorrect ? "✅" : "—"} {row.lowestGuess}
+                            </span>
+                          ) : "—"}
+                        </td>
                       </>
                     )}
                   </tr>
@@ -3561,6 +3750,7 @@ export default function App() {
           <JaguarsTile />
         </div>
       )}
+      {tab === "Standings" && <ErrorBoundary key="recap"><WeeklyRecap leagueData={leagueData} /></ErrorBoundary>}
       {tab === "Standings" && <Standings leagueData={leagueData} />}
       {tab === "Scoreboard" && <Scoreboard leagueData={leagueData} />}
       {tab === "Teams" && <Teams leagueData={leagueData} />}
