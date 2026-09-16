@@ -1915,6 +1915,9 @@ function PickLeaderboard({ leagueData }) {
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   const [gradedResults, setGradedResults] = useState({});
+  const [archiveWeek, setArchiveWeek] = useState(null);
+  const [archiveDetail, setArchiveDetail] = useState(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
 
   useEffect(() => {
@@ -2010,6 +2013,87 @@ function PickLeaderboard({ leagueData }) {
     gradeAll();
   }, [allPicks, leagueData, currentWeek]);
 
+  // Default the archive week selector to the most recently completed week
+  useEffect(() => {
+    if (archiveWeek == null && currentWeek > 1) {
+      setArchiveWeek(currentWeek - 1);
+    }
+  }, [currentWeek, archiveWeek]);
+
+  // Fetch and compute the full pick detail table for the selected archive week
+  useEffect(() => {
+    if (!archiveWeek || !leagueData || !allPicks) { setArchiveDetail(null); return; }
+
+    async function loadArchiveWeek() {
+      setArchiveLoading(true);
+      const weekKey = `week${archiveWeek}`;
+      const weekPicks = allPicks[weekKey] || {};
+
+      let matchups = null;
+      let actualHighestTeam = null, actualLowestTeam = null, biggestBlowout = null;
+      try {
+        const raw = await sf(`/league/${leagueData.league.league_id}/matchups/${archiveWeek}`);
+        matchups = buildMatchupPairs(raw, leagueData.rosters, leagueData.users);
+        if (matchups.every(m => m.complete)) {
+          const allTeamScores = matchups.flatMap(m => [
+            { rosterId: m.home.rosterId, pts: m.homePts },
+            { rosterId: m.away.rosterId, pts: m.awayPts },
+          ]);
+          actualHighestTeam = allTeamScores.reduce((a, b) => (b.pts > a.pts ? b : a));
+          actualLowestTeam = allTeamScores.reduce((a, b) => (b.pts < a.pts ? b : a));
+          biggestBlowout = matchups.reduce((best, m) => {
+            const diff = Math.abs(m.homePts - m.awayPts);
+            return !best || diff > best.diff ? { matchupId: m.matchupId, diff } : best;
+          }, null);
+        }
+      } catch {}
+
+      const standings = buildStandingsFromData(leagueData.rosters, leagueData.users);
+      const rows = standings.map(t => {
+        const submission = Object.values(weekPicks).find(p => p.displayName === t.owner);
+        if (!submission) return { team: t, submitted: false, picks: null };
+
+        const matchupResults = matchups ? matchups.map((m, idx) => {
+          const pickedId = submission[`match_${m.matchupId}`];
+          if (pickedId == null) return { idx, picked: null, correct: null };
+          const pickedTeam = pickedId === m.home.rosterId ? m.home : m.away;
+          const winner = m.complete ? (m.homePts >= m.awayPts ? m.home.rosterId : m.away.rosterId) : null;
+          const correct = m.complete ? pickedId === winner : null;
+          return { idx, picked: pickedTeam.team, correct };
+        }) : [];
+
+        const highestPickTeam = submission.highestScore != null
+          ? standings.find(s => s.rosterId === submission.highestScore)?.team : null;
+        const highestCorrect = actualHighestTeam ? submission.highestScore === actualHighestTeam.rosterId : null;
+
+        const lowestPickTeam = submission.lowestScore != null
+          ? standings.find(s => s.rosterId === submission.lowestScore)?.team : null;
+        const lowestCorrect = actualLowestTeam ? submission.lowestScore === actualLowestTeam.rosterId : null;
+
+        const blowoutMatch = submission.biggestBlowout != null && matchups
+          ? matchups.find(m => m.matchupId === submission.biggestBlowout) : null;
+        const blowoutPick = blowoutMatch ? `${blowoutMatch.home.owner} vs ${blowoutMatch.away.owner}` : null;
+        const blowoutCorrect = biggestBlowout ? submission.biggestBlowout === biggestBlowout.matchupId : null;
+
+        return {
+          team: t,
+          submitted: true,
+          submittedAt: submission.submittedAt,
+          matchupResults,
+          highestPickTeam, highestCorrect,
+          lowestPickTeam, lowestCorrect,
+          highestGuess: submission.highestScoreGuess,
+          lowestGuess: submission.lowestScoreGuess,
+          blowoutPick, blowoutCorrect,
+        };
+      });
+
+      setArchiveDetail({ rows, matchups, isComplete: !!actualHighestTeam });
+      setArchiveLoading(false);
+    }
+    loadArchiveWeek();
+  }, [archiveWeek, leagueData, allPicks]);
+
   if (!leagueData) return <Loading />;
   if (!fbReady()) return (
     <div style={S.section}>
@@ -2048,12 +2132,129 @@ function PickLeaderboard({ leagueData }) {
           </div>
         ))}
       </div>
+
+      {/* ── Weekly Pick Archive ── */}
+      <div style={{ marginTop: 36 }}>
+        <div style={{ fontWeight: 900, color: T.white, fontSize: 15, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>
+          Weekly Pick Archive
+        </div>
+        <div style={{ color: T.grayText, fontSize: 12, marginBottom: 16 }}>
+          Select a week to see every team's picks and whether they were correct.
+        </div>
+
+        {/* Week selector — two rows, matches Scoreboard styling */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "nowrap" }}>
+            {Array.from({ length: 9 }, (_, i) => i + 1).map(w => (
+              <button key={w}
+                style={{ ...S.btn(archiveWeek === w), flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, minWidth: 0, textAlign: "center" }}
+                onClick={() => setArchiveWeek(w)}>
+                Wk {w}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "nowrap" }}>
+            {Array.from({ length: 8 }, (_, i) => i + 10).map(w => (
+              <button key={w}
+                style={{
+                  ...S.btn(archiveWeek === w), flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, minWidth: 0, textAlign: "center",
+                  borderColor: w > 14 ? (archiveWeek === w ? T.goldLight : `${T.gold}55`) : (archiveWeek === w ? T.tealGlow : T.grayMid),
+                  color: w > 14 ? (archiveWeek === w ? T.goldLight : T.grayText) : (archiveWeek === w ? T.tealGlow : T.grayText),
+                  background: w > 14 && archiveWeek === w ? `${T.gold}22` : "transparent",
+                }}
+                onClick={() => setArchiveWeek(w)}>
+                Wk {w}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {archiveWeek && archiveWeek >= currentWeek && (
+          <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, fontSize: 13 }}>
+            Week {archiveWeek} hasn't happened yet.
+          </div>
+        )}
+
+        {archiveWeek && archiveWeek < currentWeek && archiveLoading && <Loading msg={`Loading Week ${archiveWeek} picks...`} />}
+
+        {archiveWeek && archiveWeek < currentWeek && !archiveLoading && archiveDetail && (
+          <div style={{ ...S.card, overflowX: "auto" }}>
+            <table style={{ ...S.table, minWidth: 900 }}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Team</th>
+                  {archiveDetail.matchups?.map((m, idx) => (
+                    <th key={m.matchupId} style={S.th}>M{idx + 1}</th>
+                  ))}
+                  <th style={S.th}>🔥 High</th>
+                  <th style={S.th}>💩 Low</th>
+                  <th style={S.th}>💥 Blowout</th>
+                  <th style={S.th}>🎯 High Guess</th>
+                  <th style={S.th}>🎯 Low Guess</th>
+                </tr>
+              </thead>
+              <tbody>
+                {archiveDetail.rows.map((row, i) => (
+                  <tr key={row.team.rosterId} style={{ background: i % 2 === 0 ? "#181818" : "transparent" }}>
+                    <td style={S.td}>
+                      <div style={{ fontWeight: 700, color: T.white, fontSize: 13 }}>{row.team.team}</div>
+                      <div style={{ fontSize: 10, color: T.grayText }}>{row.team.owner}</div>
+                    </td>
+                    {!row.submitted ? (
+                      <td colSpan={(archiveDetail.matchups?.length || 0) + 5} style={{ ...S.td, color: T.grayText, fontStyle: "italic" }}>
+                        Did not submit
+                      </td>
+                    ) : (
+                      <>
+                        {row.matchupResults.map((mr, idx) => (
+                          <td key={idx} style={S.td}>
+                            {mr.picked ? (
+                              <span style={{ fontSize: 12, color: mr.correct === true ? T.tealGlow : mr.correct === false ? "#ff6666" : T.grayText }}>
+                                {mr.correct === true ? "✅" : mr.correct === false ? "❌" : "—"} {mr.picked}
+                              </span>
+                            ) : <span style={{ color: T.grayText, fontSize: 12 }}>—</span>}
+                          </td>
+                        ))}
+                        <td style={S.td}>
+                          {row.highestPickTeam ? (
+                            <span style={{ fontSize: 12, color: row.highestCorrect === true ? T.tealGlow : row.highestCorrect === false ? "#ff6666" : T.grayText }}>
+                              {row.highestCorrect === true ? "✅" : row.highestCorrect === false ? "❌" : "—"} {row.highestPickTeam}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={S.td}>
+                          {row.lowestPickTeam ? (
+                            <span style={{ fontSize: 12, color: row.lowestCorrect === true ? T.tealGlow : row.lowestCorrect === false ? "#ff6666" : T.grayText }}>
+                              {row.lowestCorrect === true ? "✅" : row.lowestCorrect === false ? "❌" : "—"} {row.lowestPickTeam}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={S.td}>
+                          {row.blowoutPick ? (
+                            <span style={{ fontSize: 12, color: row.blowoutCorrect === true ? T.tealGlow : row.blowoutCorrect === false ? "#ff6666" : T.grayText }}>
+                              {row.blowoutCorrect === true ? "✅" : row.blowoutCorrect === false ? "❌" : "—"} {row.blowoutPick}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12 }}>{row.highestGuess || "—"}</td>
+                        <td style={{ ...S.td, fontSize: 12 }}>{row.lowestGuess || "—"}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!archiveDetail.isComplete && (
+              <div style={{ padding: "12px 18px", color: T.grayText, fontSize: 12, borderTop: `1px solid ${T.grayMid}` }}>
+                Week {archiveWeek} games aren't finished yet — correctness will update once scores are final.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
-
-// ─── JAGUARS GAME TILE ────────────────────────────────────────────────────────
 
 // ─── LEAGUE HISTORY TAB ──────────────────────────────────────────────────────
 function LeagueHistory({ leagueData }) {
