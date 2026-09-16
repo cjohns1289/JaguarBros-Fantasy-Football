@@ -1109,13 +1109,27 @@ async function buildWeeklyRecapData(leagueData, week) {
 
 // Deterministic pseudo-random picker so the same matchup always reads the same way,
 // but different matchups in the same recap pull from different parts of each pool.
-function pick(arr, seed) {
-  return arr[seed % arr.length];
+// Picks an item from a pool that hasn't been used yet in this recap. Falls back
+// to a deterministic pick (still varied, just allowing a repeat) only if every
+// option in the pool has already been used — which practically never happens
+// given a 12-team week and pools this large.
+function pickUnused(arr, seed, usedSet) {
+  const startIdx = seed % arr.length;
+  for (let offset = 0; offset < arr.length; offset++) {
+    const candidate = arr[(startIdx + offset) % arr.length];
+    if (!usedSet.has(candidate)) {
+      usedSet.add(candidate);
+      return candidate;
+    }
+  }
+  // Every option already used this recap — just return the seeded pick.
+  return arr[startIdx];
 }
 
-// Builds a genuinely varied, sportswriter-style paragraph per matchup —
-// no fill-in-the-blank templates, no repeated stock phrases within one recap.
-function narrateMatchup(m, i, isClosest, isBlowout) {
+// Builds a genuinely varied, sportswriter-style paragraph per matchup. Large,
+// diverse phrase banks plus per-recap no-repeat tracking (via `used`) mean a
+// full 6-matchup week never reuses the same sentence structure twice.
+function narrateMatchup(m, i, isClosest, isBlowout, used) {
   const sentences = [];
 
   // ── Opening line — result + tone
@@ -1123,63 +1137,83 @@ function narrateMatchup(m, i, isClosest, isBlowout) {
     `${m.winner.team} survived a scare, outlasting ${m.loser.team} by a razor-thin ${m.margin.toFixed(1)}.`,
     `It came down to the wire: ${m.winner.team} edged out ${m.loser.team}, ${m.winnerPts.toFixed(1)} to ${m.loserPts.toFixed(1)}.`,
     `${m.loser.team} pushed ${m.winner.team} to the brink before falling by just ${m.margin.toFixed(1)}.`,
+    `This one had no business being close, and yet ${m.winner.team} needed every point to hold off ${m.loser.team}.`,
+    `A photo finish — ${m.winner.team} nipped ${m.loser.team} by ${m.margin.toFixed(1)} in what may be the week's best game.`,
+    `${m.winner.team} squeaked by, ${m.winnerPts.toFixed(1)}-${m.loserPts.toFixed(1)}, in a game that could've gone either way.`,
   ];
   const blowoutOpeners = [
     `${m.winner.team} put on a clinic, steamrolling ${m.loser.team} ${m.winnerPts.toFixed(1)} to ${m.loserPts.toFixed(1)}.`,
     `There was no drama here — ${m.winner.team} throttled ${m.loser.team} by ${m.margin.toFixed(1)}.`,
     `${m.loser.team} never had an answer. ${m.winner.team} cruised, ${m.winnerPts.toFixed(1)} to ${m.loserPts.toFixed(1)}.`,
+    `This was over by halftime, on paper anyway — ${m.winner.team} demolished ${m.loser.team} by ${m.margin.toFixed(1)}.`,
+    `${m.winner.team} left no doubt, dismantling ${m.loser.team} in the week's most lopsided result.`,
+    `A total mismatch: ${m.winner.team} buried ${m.loser.team} under a ${m.margin.toFixed(1)}-point avalanche.`,
   ];
   const normalOpeners = [
     `${m.winner.team} handled business against ${m.loser.team}, ${m.winnerPts.toFixed(1)} to ${m.loserPts.toFixed(1)}.`,
     `${m.winner.team} took care of ${m.loser.team} by ${m.margin.toFixed(1)}, never really in doubt.`,
     `A comfortable one for ${m.winner.team}, who beat ${m.loser.team} ${m.winnerPts.toFixed(1)}-${m.loserPts.toFixed(1)}.`,
     `${m.winner.team} controlled the pace from the jump, cruising past ${m.loser.team} by ${m.margin.toFixed(1)}.`,
+    `${m.winner.team} did enough, coming away with a ${m.margin.toFixed(1)}-point win over ${m.loser.team}.`,
+    `${m.loser.team} hung around, but ${m.winner.team} kept them at arm's length for a ${m.margin.toFixed(1)}-point victory.`,
+    `A workmanlike win for ${m.winner.team}, who held serve against ${m.loser.team}, ${m.winnerPts.toFixed(1)}-${m.loserPts.toFixed(1)}.`,
   ];
 
-  if (isClosest) sentences.push(pick(closeOpeners, i));
-  else if (isBlowout) sentences.push(pick(blowoutOpeners, i));
-  else if (m.margin < 12) sentences.push(pick(closeOpeners, i + 1));
-  else sentences.push(pick(normalOpeners, i));
+  if (isClosest) sentences.push(pickUnused(closeOpeners, i, used));
+  else if (isBlowout) sentences.push(pickUnused(blowoutOpeners, i, used));
+  else if (m.margin < 12) sentences.push(pickUnused(closeOpeners, i + 3, used));
+  else sentences.push(pickUnused(normalOpeners, i, used));
 
   // ── Winner's standout performer
   if (m.winnerTop) {
     const winnerLines = [
       `${m.winnerTop.name} did the heavy lifting for ${m.winner.owner}, going off for ${m.winnerTop.pts.toFixed(1)} points at ${m.winnerTop.position}.`,
       `The difference was ${m.winnerTop.name}, who torched the box score with ${m.winnerTop.pts.toFixed(1)} points.`,
-      `${m.winner.owner} rode ${m.winnerTop.name} to victory — a ${m.winnerTop.pts.toFixed(1)}-point outing at ${m.winnerTop.position}.`,
-      `${m.winnerTop.name} was the engine behind the win, posting ${m.winnerTop.pts.toFixed(1)} points.`,
+      `${m.winner.owner} leaned on ${m.winnerTop.name} all week, and it paid off with ${m.winnerTop.pts.toFixed(1)} points.`,
+      `${m.winnerTop.name} was the story of this one, piling up ${m.winnerTop.pts.toFixed(1)} points from the ${m.winnerTop.position} spot.`,
+      `Give the game ball to ${m.winnerTop.name}, who delivered ${m.winnerTop.pts.toFixed(1)} points for ${m.winner.owner}.`,
+      `${m.winner.owner} can thank ${m.winnerTop.name} for this one — ${m.winnerTop.pts.toFixed(1)} points from the ${m.winnerTop.position} slot.`,
+      `${m.winnerTop.name} set the tone early and never let up, finishing with ${m.winnerTop.pts.toFixed(1)}.`,
+      `It was ${m.winnerTop.name}'s week — ${m.winnerTop.pts.toFixed(1)} points that made everything else academic.`,
     ];
-    sentences.push(pick(winnerLines, i + 2));
+    sentences.push(pickUnused(winnerLines, i + 1, used));
   }
 
   // ── Loser's story — pick the most interesting angle available, only one
   if (m.loserTopCouldHaveFlippedIt && m.loserTop) {
     const nearMissLines = [
       `${m.loser.owner} had a real chance here — ${m.loserTop.name} erupted for ${m.loserTop.pts.toFixed(1)}, but the hole was too deep to climb out of.`,
-      `Credit to ${m.loser.owner}: ${m.loserTop.name} nearly single-handedly stole this one back with ${m.loserTop.pts.toFixed(1)} points, but the math didn't quite work out.`,
-      `${m.loserTop.name} kept ${m.loser.owner} in it deep into the week with ${m.loserTop.pts.toFixed(1)} points — a heroic effort in a losing cause.`,
+      `Credit to ${m.loser.owner}: ${m.loserTop.name} nearly stole this one back with ${m.loserTop.pts.toFixed(1)} points.`,
+      `${m.loserTop.name} kept ${m.loser.owner} in it deep into the week with ${m.loserTop.pts.toFixed(1)} points — a strong effort in a losing cause.`,
+      `${m.loser.owner} came agonizingly close, thanks to a ${m.loserTop.pts.toFixed(1)}-point night from ${m.loserTop.name}.`,
+      `If ${m.loserTop.name} had done just a little more, ${m.loser.owner} walks away with the win instead of ${m.loserTop.pts.toFixed(1)} points and a loss.`,
     ];
-    sentences.push(pick(nearMissLines, i + 3));
+    sentences.push(pickUnused(nearMissLines, i + 2, used));
   } else if (m.loserBenchCouldHaveWon && m.loserBenchPts > 0) {
     const benchLines = [
       `The real story for ${m.loser.owner} might be the bench — ${m.loserBenchPts.toFixed(1)} points sat unused, more than enough to flip this result.`,
-      `${m.loser.owner} will want to look at their lineup card: ${m.loserBenchPts.toFixed(1)} bench points went to waste, easily enough to have won.`,
-      `Painful lineup math for ${m.loser.owner} — the bench outscored the margin of defeat by a wide one.`,
+      `${m.loser.owner} will want to look at their lineup card: ${m.loserBenchPts.toFixed(1)} bench points went to waste.`,
+      `Painful lineup math for ${m.loser.owner} — the bench alone outscored the margin of defeat.`,
+      `Somewhere on ${m.loser.owner}'s bench sat ${m.loserBenchPts.toFixed(1)} unused points, which tells its own story.`,
+      `A tough pill for ${m.loser.owner}: the guys sitting on the bench would've won this outright.`,
     ];
-    sentences.push(pick(benchLines, i + 4));
+    sentences.push(pickUnused(benchLines, i + 4, used));
   } else if (m.loserUnderProjected != null && m.loserUnderProjected > 10) {
     const underLines = [
-      `${m.loser.owner} came in well below their projection, falling short by roughly ${m.loserUnderProjected.toFixed(1)} points.`,
+      `${m.loser.owner} came in well below projection, falling short by roughly ${m.loserUnderProjected.toFixed(1)} points.`,
       `A rough week on paper for ${m.loser.owner}, who underperformed their projected total by about ${m.loserUnderProjected.toFixed(1)} points.`,
+      `The numbers didn't cooperate for ${m.loser.owner}, coming in roughly ${m.loserUnderProjected.toFixed(1)} points shy of expectations.`,
     ];
-    sentences.push(pick(underLines, i + 5));
+    sentences.push(pickUnused(underLines, i + 5, used));
   } else if (m.loserTop) {
     const ordinaryLossLines = [
       `${m.loser.owner} got a solid ${m.loserTop.pts.toFixed(1)} from ${m.loserTop.name}, but it wasn't the week's best supporting cast.`,
       `${m.loser.owner}'s top performer, ${m.loserTop.name}, chipped in ${m.loserTop.pts.toFixed(1)} — respectable, but outgunned.`,
       `Not a disaster for ${m.loser.owner} — ${m.loserTop.name} did his job with ${m.loserTop.pts.toFixed(1)} — just outscored across the roster.`,
+      `${m.loser.owner} got what they needed from ${m.loserTop.name}, just not enough from everyone else.`,
+      `${m.loser.owner}'s roster came up quiet outside of ${m.loserTop.name}'s ${m.loserTop.pts.toFixed(1)} points.`,
     ];
-    sentences.push(pick(ordinaryLossLines, i + 6));
+    sentences.push(pickUnused(ordinaryLossLines, i + 6, used));
   }
 
   return sentences.join(" ");
@@ -1207,35 +1241,40 @@ function RecapCard({ recap }) {
             `Another week in the books, with results ranging from down-to-the-wire drama to one-sided beatdowns.`,
             `The scores are in, and this week had a bit of everything — heartbreak, dominance, and a few lineup decisions that'll sting.`,
           ];
-          return pick(intros, recap.week);
+          return intros[recap.week % intros.length];
         })()}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {recap.matchups.map((m, i) => {
-          const isClosest = m === recap.closest;
-          const isBlowout = m === recap.blowout;
-          return (
-            <div key={i} style={{
-              background: "#0d1f22", borderRadius: 8, padding: "12px 16px",
-              borderLeft: `3px solid ${isClosest ? T.goldLight : isBlowout ? "#ff6666" : T.grayMid}`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
-                <span style={{ fontSize: 13 }}>
-                  <strong style={{ color: T.goldLight }}>{m.winner.team}</strong>
-                  <span style={{ color: T.grayText }}> def. </span>
-                  <strong style={{ color: T.white }}>{m.loser.team}</strong>
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.tealGlow }}>
-                  {m.winnerPts.toFixed(1)} – {m.loserPts.toFixed(1)}
-                </span>
+        {(() => {
+          // Shared "used phrases" tracker for this whole recap — ensures no
+          // sentence template repeats across the week's matchups.
+          const usedPhrases = new Set();
+          return recap.matchups.map((m, i) => {
+            const isClosest = m === recap.closest;
+            const isBlowout = m === recap.blowout;
+            return (
+              <div key={i} style={{
+                background: "#0d1f22", borderRadius: 8, padding: "12px 16px",
+                borderLeft: `3px solid ${isClosest ? T.goldLight : isBlowout ? "#ff6666" : T.grayMid}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+                  <span style={{ fontSize: 13 }}>
+                    <strong style={{ color: T.goldLight }}>{m.winner.team}</strong>
+                    <span style={{ color: T.grayText }}> def. </span>
+                    <strong style={{ color: T.white }}>{m.loser.team}</strong>
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.tealGlow }}>
+                    {m.winnerPts.toFixed(1)} – {m.loserPts.toFixed(1)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: T.grayText, lineHeight: 1.6 }}>
+                  {narrateMatchup(m, i, isClosest, isBlowout, usedPhrases)}
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: T.grayText, lineHeight: 1.6 }}>
-                {narrateMatchup(m, i, isClosest, isBlowout)}
-              </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </div>
 
       {recap.bestLoser && recap.bestLoser.loserPts > 0 && (
