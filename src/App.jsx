@@ -1358,7 +1358,6 @@ function WeeklyPicks({ leagueData }) {
   const [windowMsg, setWindowMsg] = useState(getPicksWindowMessage());
   const [weekPicks, setWeekPicks] = useState(null);
   const [loadingWeekPicks, setLoadingWeekPicks] = useState(false);
-  const [viewPicksOwner, setViewPicksOwner] = useState("");
 
   // Derived values — must be defined before useEffects that reference them
   const standings = leagueData ? buildStandingsFromData(leagueData.rosters, leagueData.users) : [];
@@ -1508,9 +1507,6 @@ function WeeklyPicks({ leagueData }) {
     const submitted = weekPicks ? Object.values(weekPicks) : [];
     const submittedNames = new Set(submitted.map(p => p.displayName).filter(Boolean));
     const allTeams = standings;
-    const viewTeamPicks = viewPicksOwner
-      ? submitted.find(p => p.displayName === viewPicksOwner)
-      : null;
 
     return (
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 20px" }}>
@@ -1583,97 +1579,6 @@ function WeeklyPicks({ leagueData }) {
           )}
         </div>
           )}
-
-        {/* View a team's submitted picks */}
-        {afterDeadline && (
-          <div style={{ ...S.card, marginTop: 20 }}>
-            <div style={{ background: "linear-gradient(90deg,#001f26,#003840)", padding: "12px 18px", borderBottom: `2px solid ${T.teal}` }}>
-              <span style={{ fontWeight: 900, color: T.tealGlow, fontSize: 14, letterSpacing: 2, textTransform: "uppercase" }}>
-                View Week {currentWeek} Picks
-              </span>
-            </div>
-            <div style={{ padding: 18 }}>
-              <select
-                value={viewPicksOwner}
-                onChange={e => setViewPicksOwner(e.target.value)}
-                style={{ ...S.input, marginBottom: viewTeamPicks ? 16 : 0, maxWidth: 320 }}
-              >
-                <option value="">Select a team...</option>
-                {allTeams.map(t => (
-                  <option key={t.rosterId} value={t.owner} disabled={!submittedNames.has(t.owner)}>
-                    {t.team} ({t.owner}){!submittedNames.has(t.owner) ? " — not submitted" : ""}
-                  </option>
-                ))}
-              </select>
-
-              {viewTeamPicks && matchups && (
-                <div>
-                  <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
-                    Matchup Winners
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
-                    {matchups.map((m, idx) => {
-                      const pickedRosterId = viewTeamPicks[`match_${m.matchupId}`];
-                      if (pickedRosterId == null) return null;
-                      const pickedTeam = pickedRosterId === m.home.rosterId ? m.home : m.away;
-                      return (
-                        <div key={m.matchupId} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                          <span style={{ color: T.grayText }}>Matchup {idx + 1}</span>
-                          <span style={{ color: T.tealGlow, fontWeight: 700 }}>{pickedTeam.team}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div style={{ fontWeight: 700, color: T.white, fontSize: 13, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
-                    Special Picks
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {viewTeamPicks.highestScore != null && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                        <span style={{ color: T.grayText }}>🔥 Highest Score</span>
-                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
-                          {standings.find(t => t.rosterId === viewTeamPicks.highestScore)?.team || "—"}
-                        </span>
-                      </div>
-                    )}
-                    {viewTeamPicks.lowestScore != null && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                        <span style={{ color: T.grayText }}>💩 Lowest Score</span>
-                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
-                          {standings.find(t => t.rosterId === viewTeamPicks.lowestScore)?.team || "—"}
-                        </span>
-                      </div>
-                    )}
-                    {viewTeamPicks.highestScoreGuess != null && viewTeamPicks.highestScoreGuess !== "" && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                        <span style={{ color: T.grayText }}>🎯 Highest Score Total Guess</span>
-                        <span style={{ color: T.goldLight, fontWeight: 700 }}>{viewTeamPicks.highestScoreGuess} pts</span>
-                      </div>
-                    )}
-                    {viewTeamPicks.lowestScoreGuess != null && viewTeamPicks.lowestScoreGuess !== "" && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                        <span style={{ color: T.grayText }}>🎯 Lowest Score Total Guess</span>
-                        <span style={{ color: T.goldLight, fontWeight: 700 }}>{viewTeamPicks.lowestScoreGuess} pts</span>
-                      </div>
-                    )}
-                    {viewTeamPicks.biggestBlowout != null && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: T.grayMid, borderRadius: 6, fontSize: 13 }}>
-                        <span style={{ color: T.grayText }}>💥 Biggest Blowout</span>
-                        <span style={{ color: T.goldLight, fontWeight: 700 }}>
-                          {(() => {
-                            const m = matchups.find(mm => mm.matchupId === viewTeamPicks.biggestBlowout);
-                            return m ? `${m.home.owner} vs ${m.away.owner}` : "—";
-                          })()}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -2015,8 +1920,10 @@ function PickLeaderboard({ leagueData }) {
 
   // Default the archive week selector to the most recently completed week
   useEffect(() => {
-    if (archiveWeek == null && currentWeek > 1) {
-      setArchiveWeek(currentWeek - 1);
+    if (archiveWeek == null) {
+      // Default to the current week if its picks have already locked, otherwise the prior week
+      const defaultWeek = isAfterDeadline() ? currentWeek : currentWeek - 1;
+      if (defaultWeek >= 1) setArchiveWeek(defaultWeek);
     }
   }, [currentWeek, archiveWeek]);
 
@@ -2169,15 +2076,21 @@ function PickLeaderboard({ leagueData }) {
           </div>
         </div>
 
-        {archiveWeek && archiveWeek >= currentWeek && (
+        {archiveWeek && archiveWeek > currentWeek && (
           <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, fontSize: 13 }}>
             Week {archiveWeek} hasn't happened yet.
           </div>
         )}
 
-        {archiveWeek && archiveWeek < currentWeek && archiveLoading && <Loading msg={`Loading Week ${archiveWeek} picks...`} />}
+        {archiveWeek && archiveWeek === currentWeek && !isAfterDeadline() && (
+          <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, fontSize: 13 }}>
+            🔒 Week {archiveWeek} picks are still open. Everyone's selections will appear here once picks lock.
+          </div>
+        )}
 
-        {archiveWeek && archiveWeek < currentWeek && !archiveLoading && archiveDetail && (
+        {archiveWeek && (archiveWeek < currentWeek || (archiveWeek === currentWeek && isAfterDeadline())) && archiveLoading && <Loading msg={`Loading Week ${archiveWeek} picks...`} />}
+
+        {archiveWeek && (archiveWeek < currentWeek || (archiveWeek === currentWeek && isAfterDeadline())) && !archiveLoading && archiveDetail && (
           <div style={{ ...S.card, overflowX: "auto" }}>
             <table style={{ ...S.table, minWidth: 900 }}>
               <thead>
