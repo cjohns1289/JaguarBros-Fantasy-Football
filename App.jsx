@@ -1007,6 +1007,158 @@ function JaguarsTile() {
 
 // ─── STANDINGS TAB ────────────────────────────────────────────────────────────
 // ─── WEEKLY RECAP (Standings page) ─────────────────────────────────────────────
+// ─── WEEKLY RECAP — shared data builder ────────────────────────────────────────
+async function buildWeeklyRecapData(leagueData, week) {
+  const raw = await sf(`/league/${leagueData.league.league_id}/matchups/${week}`);
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+
+  const userMap = {};
+  leagueData.users.forEach(u => { userMap[u.user_id] = u; });
+  const rosterMap = {};
+  leagueData.rosters.forEach(r => {
+    const user = userMap[r.owner_id] || {};
+    rosterMap[r.roster_id] = {
+      rosterId: r.roster_id,
+      owner: user.display_name || "Unknown",
+      team: user.metadata?.team_name || user.display_name || `Team ${r.roster_id}`,
+    };
+  });
+
+  const byMatchup = {};
+  raw.forEach(m => {
+    if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
+    byMatchup[m.matchup_id].push(m);
+  });
+  const pairs = Object.values(byMatchup).filter(p => p.length === 2);
+  if (pairs.length === 0 || !pairs.every(p => (p[0].points || 0) > 0 || (p[1].points || 0) > 0)) {
+    return null;
+  }
+
+  // Fetch NFL player directory for names/positions (top scorer callouts)
+  let playerDetails = {};
+  try {
+    playerDetails = await fetchWithFallback("https://api.sleeper.app/v1/players/nfl") || {};
+  } catch {}
+
+  const topStartersOf = (entry, count = 3) => {
+    const starters = entry.starters || [];
+    const pts = entry.players_points || {};
+    return starters
+      .map(pid => {
+        const player = playerDetails[pid];
+        const p = pts[pid] || 0;
+        return player ? { name: `${player.first_name} ${player.last_name}`, pts: p, position: player.position } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.pts - a.pts)
+      .slice(0, count);
+  };
+
+  const matchups = pairs.map(([a, b]) => {
+    const home = rosterMap[a.roster_id] || { team: "TBD", owner: "TBD" };
+    const away = rosterMap[b.roster_id] || { team: "TBD", owner: "TBD" };
+    const homePts = a.points || 0, awayPts = b.points || 0;
+    const margin = Math.abs(homePts - awayPts);
+    const winner = homePts >= awayPts ? home : away;
+    const loser = homePts >= awayPts ? away : home;
+    const winnerPts = Math.max(homePts, awayPts);
+    const loserPts = Math.min(homePts, awayPts);
+    const winnerEntry = homePts >= awayPts ? a : b;
+    const loserEntry = homePts >= awayPts ? b : a;
+    const winnerTop = topStartersOf(winnerEntry, 1)[0] || null;
+    const loserTop = topStartersOf(loserEntry, 1)[0] || null;
+
+    // "Almost had it" signal: how much more the losing side's best starter
+    // would have needed to flip the result — this is the closest we can get,
+    // from real Sleeper data, to a genuine near-miss storyline without play-by-play.
+    const neededToWin = margin;
+    const loserTopCouldHaveFlippedIt = loserTop && loserTop.pts > 0 && neededToWin <= loserTop.pts * 0.6;
+
+    return {
+      home, away, homePts, awayPts, margin, winner, loser, winnerPts, loserPts,
+      winnerTop, loserTop, neededToWin, loserTopCouldHaveFlippedIt,
+    };
+  }).sort((a, b) => a.margin - b.margin);
+
+  const closest = matchups[0];
+  const blowout = matchups[matchups.length - 1];
+  const bestLoser = matchups.reduce((best, m) => m.loserPts > (best?.loserPts || 0) ? m : best, null);
+  const topScoreOverall = matchups.reduce((best, m) => m.winnerPts > (best?.winnerPts || 0) ? m : best, null);
+
+  return { week, matchups, closest, blowout, bestLoser, topScoreOverall };
+}
+
+// Builds a smoother, more varied sentence per matchup instead of a rigid template
+function narrateMatchup(m, isClosest, isBlowout) {
+  const parts = [];
+  if (isClosest) parts.push(`🔥 The nail-biter of the week — decided by just ${m.margin.toFixed(1)}.`);
+  else if (isBlowout) parts.push(`💥 Not close. ${m.winner.team} ran away with it by ${m.margin.toFixed(1)}.`);
+  else if (m.margin < 10) parts.push(`A tight one, won by ${m.margin.toFixed(1)}.`);
+  else parts.push(`${m.winner.team} controlled it, winning by ${m.margin.toFixed(1)}.`);
+
+  if (m.winnerTop) {
+    parts.push(`${m.winnerTop.name} (${m.winnerTop.position}) led the way for ${m.winner.owner} with ${m.winnerTop.pts.toFixed(1)} points.`);
+  }
+  if (m.loserTop && m.loserTopCouldHaveFlippedIt) {
+    parts.push(`${m.loser.owner}'s ${m.loserTop.name} put up ${m.loserTop.pts.toFixed(1)} and nearly dragged them across the finish line — just not quite enough.`);
+  } else if (m.loserTop && m.margin < 15) {
+    parts.push(`${m.loser.owner} got ${m.loserTop.pts.toFixed(1)} from ${m.loserTop.name}, but it wasn't enough to close the gap.`);
+  }
+  return parts.join(" ");
+}
+
+function RecapCard({ recap }) {
+  if (!recap) return null;
+  return (
+    <div style={{
+      background: "linear-gradient(135deg,#001a1f 0%,#003840 100%)",
+      border: `1px solid ${T.teal}`, borderRadius: 10, padding: "18px 22px",
+      boxShadow: `0 0 20px ${T.teal}22`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 20 }}>📰</span>
+        <span style={{ fontWeight: 900, color: T.tealGlow, fontSize: 15, letterSpacing: 2, textTransform: "uppercase" }}>
+          Week {recap.week} Recap
+        </span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {recap.matchups.map((m, i) => {
+          const isClosest = m === recap.closest;
+          const isBlowout = m === recap.blowout;
+          return (
+            <div key={i} style={{
+              background: "#0d1f22", borderRadius: 8, padding: "12px 16px",
+              borderLeft: `3px solid ${isClosest ? T.goldLight : isBlowout ? "#ff6666" : T.grayMid}`,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+                <span style={{ fontSize: 13 }}>
+                  <strong style={{ color: T.goldLight }}>{m.winner.team}</strong>
+                  <span style={{ color: T.grayText }}> def. </span>
+                  <strong style={{ color: T.white }}>{m.loser.team}</strong>
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.tealGlow }}>
+                  {m.winnerPts.toFixed(1)} – {m.loserPts.toFixed(1)}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: T.grayText, lineHeight: 1.6 }}>
+                {narrateMatchup(m, isClosest, isBlowout)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {recap.bestLoser && recap.bestLoser.loserPts > 0 && (
+        <div style={{ marginTop: 14, padding: "10px 16px", background: "#1a0000", border: "1px solid #660000", borderRadius: 8, fontSize: 12, color: "#ff9999" }}>
+          💀 Tough beat: <strong>{recap.bestLoser.loser.team}</strong> dropped {recap.bestLoser.loserPts.toFixed(1)} points and still lost.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HOME PAGE — compact recap teaser ──────────────────────────────────────────
 function WeeklyRecap({ leagueData }) {
   const [recap, setRecap] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1015,88 +1167,9 @@ function WeeklyRecap({ leagueData }) {
 
   useEffect(() => {
     if (!leagueData || recapWeek < 1) { setLoading(false); return; }
-
-    async function buildRecap() {
-      setLoading(true);
-      try {
-        const raw = await sf(`/league/${leagueData.league.league_id}/matchups/${recapWeek}`);
-        if (!Array.isArray(raw) || raw.length === 0) { setRecap(null); setLoading(false); return; }
-
-        const userMap = {};
-        leagueData.users.forEach(u => { userMap[u.user_id] = u; });
-        const rosterMap = {};
-        leagueData.rosters.forEach(r => {
-          const user = userMap[r.owner_id] || {};
-          rosterMap[r.roster_id] = {
-            rosterId: r.roster_id,
-            owner: user.display_name || "Unknown",
-            team: user.metadata?.team_name || user.display_name || `Team ${r.roster_id}`,
-          };
-        });
-
-        const byMatchup = {};
-        raw.forEach(m => {
-          if (!byMatchup[m.matchup_id]) byMatchup[m.matchup_id] = [];
-          byMatchup[m.matchup_id].push(m);
-        });
-        const pairs = Object.values(byMatchup).filter(p => p.length === 2);
-        if (pairs.length === 0 || !pairs.every(p => (p[0].points || 0) > 0 || (p[1].points || 0) > 0)) {
-          setRecap(null); setLoading(false); return;
-        }
-
-        // Fetch NFL player directory for names/positions (top scorer callouts)
-        let playerDetails = {};
-        try {
-          playerDetails = await fetchWithFallback("https://api.sleeper.app/v1/players/nfl") || {};
-        } catch {}
-
-        const matchups = pairs.map(([a, b]) => {
-          const home = rosterMap[a.roster_id] || { team: "TBD", owner: "TBD" };
-          const away = rosterMap[b.roster_id] || { team: "TBD", owner: "TBD" };
-          const homePts = a.points || 0, awayPts = b.points || 0;
-          const margin = Math.abs(homePts - awayPts);
-          const winner = homePts >= awayPts ? home : away;
-          const loser = homePts >= awayPts ? away : home;
-          const winnerPts = Math.max(homePts, awayPts);
-          const loserPts = Math.min(homePts, awayPts);
-
-          // Find each team's top scoring starter for commentary
-          const topStarter = (entry) => {
-            const starters = entry.starters || [];
-            const pts = entry.players_points || {};
-            let best = null, bestPts = -Infinity;
-            starters.forEach(pid => {
-              const p = pts[pid] || 0;
-              if (p > bestPts) { bestPts = p; best = pid; }
-            });
-            const player = playerDetails[best];
-            const name = player ? `${player.first_name} ${player.last_name}` : null;
-            return name ? { name, pts: bestPts, position: player.position } : null;
-          };
-
-          const winnerEntry = homePts >= awayPts ? a : b;
-          const loserEntry = homePts >= awayPts ? b : a;
-
-          return {
-            home, away, homePts, awayPts, margin, winner, loser, winnerPts, loserPts,
-            winnerTopPlayer: topStarter(winnerEntry),
-            loserTopPlayer: topStarter(loserEntry),
-          };
-        }).sort((a, b) => a.margin - b.margin);
-
-        const closest = matchups[0];
-        const blowout = matchups[matchups.length - 1];
-        const highScorer = matchups.reduce((best, m) => m.winnerPts > (best?.winnerPts || 0) ? m : best, null);
-        const bestLoser = matchups.reduce((best, m) => m.loserPts > (best?.loserPts || 0) ? m : best, null);
-
-        setRecap({ week: recapWeek, matchups, closest, blowout, highScorer, bestLoser });
-      } catch(e) {
-        console.warn("[WeeklyRecap] Error:", e.message);
-        setRecap(null);
-      }
-      setLoading(false);
-    }
-    buildRecap();
+    buildWeeklyRecapData(leagueData, recapWeek)
+      .then(r => { setRecap(r); setLoading(false); })
+      .catch(e => { console.warn("[WeeklyRecap] Error:", e.message); setRecap(null); setLoading(false); });
   }, [leagueData, recapWeek]);
 
   if (!leagueData || recapWeek < 1) return null;
@@ -1109,55 +1182,87 @@ function WeeklyRecap({ leagueData }) {
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 20px 0" }}>
-      <div style={{
-        background: "linear-gradient(135deg,#001a1f 0%,#003840 100%)",
-        border: `1px solid ${T.teal}`, borderRadius: 10, padding: "18px 22px",
-        boxShadow: `0 0 20px ${T.teal}22`,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 20 }}>📰</span>
-          <span style={{ fontWeight: 900, color: T.tealGlow, fontSize: 15, letterSpacing: 2, textTransform: "uppercase" }}>
-            Week {recap.week} Recap
-          </span>
-        </div>
+      <RecapCard recap={recap} />
+    </div>
+  );
+}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {recap.matchups.map((m, i) => {
-            const isClosest = m === recap.closest;
-            const isBlowout = m === recap.blowout;
-            return (
-              <div key={i} style={{
-                background: "#0d1f22", borderRadius: 8, padding: "12px 16px",
-                borderLeft: `3px solid ${isClosest ? T.goldLight : isBlowout ? "#ff6666" : T.grayMid}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
-                  <span style={{ fontSize: 13 }}>
-                    <strong style={{ color: T.goldLight }}>{m.winner.team}</strong>
-                    <span style={{ color: T.grayText }}> def. </span>
-                    <strong style={{ color: T.white }}>{m.loser.team}</strong>
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.tealGlow }}>
-                    {m.winnerPts.toFixed(1)} – {m.loserPts.toFixed(1)}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, color: T.grayText, lineHeight: 1.5 }}>
-                  {isClosest && <span style={{ color: T.goldLight, fontWeight: 700 }}>🔥 Nail-biter — </span>}
-                  {isBlowout && <span style={{ color: "#ff6666", fontWeight: 700 }}>💥 Blowout — </span>}
-                  Won by {m.margin.toFixed(1)}.
-                  {m.winnerTopPlayer && ` ${m.winnerTopPlayer.name} (${m.winnerTopPlayer.position}) carried the win with ${m.winnerTopPlayer.pts.toFixed(1)} pts.`}
-                  {m.loserTopPlayer && m.margin < 10 && ` ${m.loser.owner}'s ${m.loserTopPlayer.name} put up ${m.loserTopPlayer.pts.toFixed(1)} but it wasn't enough.`}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+// ─── WEEKLY RECAP TAB — full archive with week selector ────────────────────────
+function WeeklyRecapPage({ leagueData }) {
+  const [selectedWeek, setSelectedWeek] = useState(null);
+  const [recap, setRecap] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const currentWeek = getCalendarWeek() || (leagueData?.leagueInfo?.settings?.leg || 1);
+  const latestAvailableWeek = isAfterDeadline() ? currentWeek : currentWeek - 1;
 
-        {recap.bestLoser && recap.bestLoser.loserPts > 0 && (
-          <div style={{ marginTop: 14, padding: "10px 16px", background: "#1a0000", border: "1px solid #660000", borderRadius: 8, fontSize: 12, color: "#ff9999" }}>
-            💀 Tough beat: <strong>{recap.bestLoser.loser.team}</strong> dropped {recap.bestLoser.loserPts.toFixed(1)} points and still lost.
-          </div>
-        )}
+  useEffect(() => {
+    if (selectedWeek == null && latestAvailableWeek >= 1) setSelectedWeek(latestAvailableWeek);
+  }, [latestAvailableWeek, selectedWeek]);
+
+  useEffect(() => {
+    if (!leagueData || !selectedWeek || selectedWeek > latestAvailableWeek) { setRecap(null); return; }
+    setLoading(true);
+    buildWeeklyRecapData(leagueData, selectedWeek)
+      .then(r => { setRecap(r); setLoading(false); })
+      .catch(e => { console.warn("[WeeklyRecapPage] Error:", e.message); setRecap(null); setLoading(false); });
+  }, [leagueData, selectedWeek, latestAvailableWeek]);
+
+  if (!leagueData) return <Loading />;
+
+  const weeks1to9 = Array.from({ length: 9 }, (_, i) => i + 1);
+  const weeks10to17 = Array.from({ length: 8 }, (_, i) => i + 10);
+
+  return (
+    <div style={S.section}>
+      <div style={S.sectionTitle}>📰 Weekly Recap</div>
+      <div style={{ color: T.grayText, fontSize: 12, marginBottom: 16 }}>
+        Auto-generated from Sleeper's final scores each week — nail-biters, blowouts, and the players who made the difference.
       </div>
+
+      {/* Week selector — matches Scoreboard styling */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "nowrap" }}>
+          {weeks1to9.map(w => (
+            <button key={w}
+              style={{ ...S.btn(selectedWeek === w), flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, minWidth: 0, textAlign: "center" }}
+              onClick={() => setSelectedWeek(w)}>
+              Wk {w}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "nowrap" }}>
+          {weeks10to17.map(w => (
+            <button key={w}
+              style={{
+                ...S.btn(selectedWeek === w), flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, minWidth: 0, textAlign: "center",
+                borderColor: w > 14 ? (selectedWeek === w ? T.goldLight : `${T.gold}55`) : (selectedWeek === w ? T.tealGlow : T.grayMid),
+                color: w > 14 ? (selectedWeek === w ? T.goldLight : T.grayText) : (selectedWeek === w ? T.tealGlow : T.grayText),
+                background: w > 14 && selectedWeek === w ? `${T.gold}22` : "transparent",
+              }}
+              onClick={() => setSelectedWeek(w)}>
+              Wk {w}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {selectedWeek && selectedWeek > latestAvailableWeek && (
+        <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, fontSize: 13 }}>
+          Week {selectedWeek} hasn't happened yet.
+        </div>
+      )}
+
+      {selectedWeek && selectedWeek <= latestAvailableWeek && loading && <Loading msg={`Loading Week ${selectedWeek} recap...`} />}
+
+      {selectedWeek && selectedWeek <= latestAvailableWeek && !loading && !recap && (
+        <div style={{ ...S.card, padding: 24, textAlign: "center", color: T.grayText, fontSize: 13 }}>
+          No recap available for Week {selectedWeek} yet — scores may still be finalizing.
+        </div>
+      )}
+
+      {selectedWeek && selectedWeek <= latestAvailableWeek && !loading && recap && (
+        <RecapCard recap={recap} />
+      )}
     </div>
   );
 }
@@ -3637,10 +3742,10 @@ function SetupGuide() {
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const TABS = ["Standings", "Weekly Picks", "Pick Leaderboard", "Weekly Incentives", "Scoreboard", "Teams", "League History", "Archive", "Rules"];
+const TABS = ["Home", "Weekly Recap", "Weekly Picks", "Pick Leaderboard", "Weekly Incentives", "Scoreboard", "Teams", "League History", "Archive", "Rules"];
 
 export default function App() {
-  const [tab, setTab] = useState("Standings");
+  const [tab, setTab] = useState("Home");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth < 900);
 
@@ -3707,7 +3812,7 @@ export default function App() {
         </>
       )}
 
-      {tab === "Standings" && (
+      {tab === "Home" && (
         <div style={S.hero}>
           <div style={S.heroGlow} />
           <div style={{ position: "relative" }}>
@@ -3745,13 +3850,13 @@ export default function App() {
         </div>
       )}
 
-      {tab === "Standings" && (
+      {tab === "Home" && (
         <div style={{ maxWidth: 700, margin: "0 auto", padding: "20px 20px 0" }}>
           <JaguarsTile />
         </div>
       )}
-      {tab === "Standings" && <ErrorBoundary key="recap"><WeeklyRecap leagueData={leagueData} /></ErrorBoundary>}
-      {tab === "Standings" && <Standings leagueData={leagueData} />}
+      {tab === "Home" && <Standings leagueData={leagueData} />}
+      {tab === "Weekly Recap" && <ErrorBoundary key="weeklyrecap"><WeeklyRecapPage leagueData={leagueData} /></ErrorBoundary>}
       {tab === "Scoreboard" && <Scoreboard leagueData={leagueData} />}
       {tab === "Teams" && <Teams leagueData={leagueData} />}
       {tab === "League History" && <ErrorBoundary key="history"><LeagueHistory leagueData={leagueData} /></ErrorBoundary>}
