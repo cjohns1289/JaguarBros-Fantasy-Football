@@ -346,6 +346,14 @@ function isWeek1LockWindow() {
   return now >= openBound && now < lockBound;
 }
 
+// Thanksgiving 2026 one-time exception: first game Wed 11/25 8:00pm ET, so picks lock then.
+// Spans the whole pick week (Tue 11/24 3am -> Tue 12/1 3am); normal Thursday 8:15pm lock resumes 12/3.
+// Wall-clock (no offset) dates match getNowEastern(), which returns Eastern wall time.
+const TG_OPEN = new Date("2026-11-24T03:00:00");
+const TG_LOCK = new Date("2026-11-25T20:00:00");
+const TG_END = new Date("2026-12-01T03:00:00");
+function inThanksgivingWeek(now) { return now >= TG_OPEN && now < TG_END; }
+
 function isPicksWindowOpen() {
   // One-time Week 1 exception — locks Wed 9/9 8:20pm ET instead of the usual Thursday.
   // This window must stay in effect through the END of Week 1 (until the normal cycle
@@ -356,6 +364,8 @@ function isPicksWindowOpen() {
   if (now < week1CycleEnd) {
     return isWeek1LockWindow();
   }
+
+  if (inThanksgivingWeek(now)) return now < TG_LOCK;
 
   const day = now.getDay();
   const hour = now.getHours();
@@ -383,6 +393,8 @@ function isAfterDeadline() {
     return now >= lockBound;
   }
 
+  if (inThanksgivingWeek(now)) return now >= TG_LOCK;
+
   const day = now.getDay();
   const hour = now.getHours();
   const minute = now.getMinutes();
@@ -409,6 +421,16 @@ function getPicksWindowMessage() {
       return `🔒 Picks lock in ${h}h ${m}m (Wed 9/9 8:20pm ET — Week 1 only)`;
     }
     return "🔐 Picks are locked. Opens Tuesday 9/15 at 3:00am ET.";
+  }
+
+  if (inThanksgivingWeek(now)) {
+    if (now < TG_LOCK) {
+      const msLeft = TG_LOCK - now;
+      const h = Math.floor(msLeft / 3600000);
+      const m = Math.floor((msLeft % 3600000) / 60000);
+      return `🔒 Picks lock in ${h}h ${m}m (Wed 11/25 8:00pm ET — Thanksgiving week only)`;
+    }
+    return "🔐 Picks are locked. Opens Tuesday 12/1 at 3:00am ET.";
   }
 
   const day = now.getDay();
